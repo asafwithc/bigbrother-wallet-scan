@@ -6,27 +6,19 @@ import { Connection, PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
  * requests with a minimum interval and retry with backoff on failure.
  */
 
-const PUBLIC_RPC =
+export const PUBLIC_RPC =
   process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com";
 
+export const RPC_WS_URL =
+  process.env.SOLANA_WS_URL ??
+  PUBLIC_RPC.replace(/^http/, "ws").replace(/\/$/, "") + "/";
+
 const MIN_INTERVAL_MS = 320; // ~3 req/s sustained, well within limits
-const MAX_RETRIES = 4;
+const MAX_RETRIES = 2;
 const CALL_TIMEOUT_MS = 20_000; // never let a hung connection stall the queue
 
 let chain: Promise<unknown> = Promise.resolve();
 let lastCall = 0;
-
-function withTimeout<T>(p: Promise<T>, what: string): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<T>((_, reject) =>
-      setTimeout(
-        () => reject(new Error(`timeout: RPC "${what}" did not respond in ${CALL_TIMEOUT_MS}ms`)),
-        CALL_TIMEOUT_MS
-      )
-    ),
-  ]);
-}
 
 function throttle<T>(fn: () => Promise<T>): Promise<T> {
   const run = chain.then(async () => {
@@ -43,7 +35,7 @@ async function withRetry<T>(fn: () => Promise<T>, what: string): Promise<T> {
   let lastErr: unknown;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      return await withTimeout(throttle(fn), what);
+      return await throttle(fn);
     } catch (err) {
       lastErr = err;
       const backoff = 500 * 2 ** attempt;
@@ -56,8 +48,28 @@ async function withRetry<T>(fn: () => Promise<T>, what: string): Promise<T> {
   throw new Error(`RPC call "${what}" failed after ${MAX_RETRIES + 1} attempts: ${String(lastErr)}`);
 }
 
+/**
+ * Connection with a self-aborting fetch. CRITICAL: the old design raced a
+ * Promise.race timeout against the request without aborting it, so one hung
+ * HTTP socket stayed in the throttle chain forever and wedged every
+ * subsequent RPC call (all timeouts, no recovery). Aborting inside the
+ * request itself releases the socket and unwedges the chain automatically.
+ */
 export const connection = new Connection(PUBLIC_RPC, {
   commitment: "confirmed",
+  fetch: async (url, init) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), CALL_TIMEOUT_MS);
+    try {
+      return await fetch(url, { ...init, signal: controller.signal });
+    } catch (err) {
+      throw new Error(
+        `timeout: RPC request aborted after ${CALL_TIMEOUT_MS}ms (${String(err).slice(0, 80)})`
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  },
 });
 
 export const rpc = {

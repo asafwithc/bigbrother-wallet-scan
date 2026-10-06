@@ -1,11 +1,12 @@
 import { PublicKey, type Logs } from "@solana/web3.js";
+import WebSocket from "ws";
 import { LAUNCHPADS, type LaunchpadConfig } from "./launchpads";
 import {
   parseCreateArgs,
   parseCreateEventData,
   findMintInTx,
 } from "./sources/pumpfun";
-import { rpc, connection } from "./solana";
+import { rpc, PUBLIC_RPC, RPC_WS_URL } from "./solana";
 import { add_launch, add_event, get_watchlist, update_launch_dev } from "./db";
 import { analyzeWallet } from "./analysis/analyze";
 
@@ -33,7 +34,16 @@ export interface MonitorInfo {
   launches: number;
 }
 
-const state = new Map<string, { status: MonitorStatus; lastEventAt: number | null; launches: number }>();
+// Monitor state lives on globalThis: instrumentation.ts and the API routes
+// get separate module instances (separate bundles), so a module-level Map
+// would make the feed read empty state while the real monitor is live.
+interface MonitorState {
+  status: MonitorStatus;
+  lastEventAt: number | null;
+  launches: number;
+}
+const g = globalThis as unknown as { __bbMonitorState?: Map<string, MonitorState> };
+const state: Map<string, MonitorState> = (g.__bbMonitorState ??= new Map());
 
 let started = false;
 
@@ -80,79 +90,153 @@ export function getMonitorStatuses(): MonitorInfo[] {
 
 /* ----------------------------- websocket path ---------------------------- */
 
+/**
+ * Raw WebSocket log subscription.
+ *
+ * We deliberately do NOT use connection.onLogs: web3.js's WS client stops
+ * delivering notifications after transient frame errors ("invalid status
+ * code 1006") and its reconnection does not revive existing subscriptions.
+ * A raw socket with our own reconnect/staleness logic is rock solid.
+ */
+interface LogsNotificationValue {
+  err: unknown;
+  logs: string[];
+  signature: string;
+}
+
+function wsUrlForProgram(programId: string): { url: string; sub: unknown } {
+  return {
+    url: RPC_WS_URL,
+    sub: {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "logsSubscribe",
+      params: [{ mentions: [programId] }, { commitment: "confirmed" }],
+    },
+  };
+}
+
+function handleLogsNotification(lp: LaunchpadConfig, value: {
+  err: unknown;
+  logs: string[];
+  signature: string;
+}): void {
+  notifCount++;
+  if (notifCount % 1000 === 0) {
+    console.log(`[monitor] ${lp.id}: ${notifCount} notifications so far`);
+  }
+  touch(lp.id);
+  if (value.err) return;
+
+  // fast path: pump.fun emits CreateEvent as "Program data:" base64
+  // directly in the logs — full launch info with zero RPC calls
+  if (lp.id === "pumpfun") {
+    for (const line of value.logs) {
+      if (line.startsWith("Program data: ")) {
+        const ev = parseCreateEventData(line.slice("Program data: ".length));
+        if (ev) {
+          recordLaunch(lp, {
+            signature: value.signature,
+            mint: ev.mint,
+            name: ev.name || null,
+            symbol: ev.symbol || null,
+            dev: ev.user,
+            blockTime: null, // set by recordLaunch
+          });
+          return;
+        }
+      }
+    }
+  }
+
+  // fallback path: fetch + parse the transaction. For pumpfun the
+  // CreateEvent fast path catches everything — falling back here
+  // hammers the public RPC (retries per fetch) and gets the whole
+  // app throttled, starving the dev analysis queue. Only launchpads
+  // WITHOUT a fast path may use RPC fetching.
+  if (lp.id !== "pumpfun" && value.logs.some((l) => lp.createLogPattern.test(l))) {
+    console.log(`[monitor] ${lp.id}: create log matched ${value.signature.slice(0, 16)}…`);
+    enqueue(lp, value.signature);
+  }
+}
+
 async function watchLaunchpad(lp: LaunchpadConfig): Promise<void> {
   const program = new PublicKey(lp.programId!);
+  const { url, sub } = wsUrlForProgram(lp.programId!);
   let backoff = 2_000;
+  let closed = false;
 
-  const subscribe = async (): Promise<void> => {
+  const connect = (): void => {
+    if (closed) return;
     try {
       setState(lp.id, "connecting");
-      connection.onLogs(
-        program,
-        ({ logs, err, signature }: Logs & { signature: string }) => {
-          notifCount++;
-          if (notifCount % 1000 === 0) {
-            console.log(`[monitor] ${lp.id}: ${notifCount} notifications so far`);
-          }
-          touch(lp.id);
-          if (err) return;
+      const ws = new WebSocket(url, { handshakeTimeout: 15_000 });
 
-          // fast path: pump.fun emits CreateEvent as "Program data:" base64
-          // directly in the logs — full launch info with zero RPC calls
-          if (lp.id === "pumpfun") {
-            for (const line of logs) {
-              if (line.startsWith("Program data: ")) {
-                const ev = parseCreateEventData(line.slice("Program data: ".length));
-                if (ev) {
-                  recordLaunch(lp, {
-                    signature,
-                    mint: ev.mint,
-                    name: ev.name || null,
-                    symbol: ev.symbol || null,
-                    dev: ev.user,
-                    blockTime: null, // set by recordLaunch
-                  });
-                  return;
-                }
-              }
-            }
-          }
+      ws.on("open", () => {
+        ws.send(JSON.stringify(sub));
+        console.log(`[monitor] ${lp.id}: websocket subscribed (raw ws)`);
+        setState(lp.id, "live");
+        backoff = 2_000;
+      });
 
-          // fallback path: fetch + parse the transaction
-          if (logs.some((l: string) => lp.createLogPattern.test(l))) {
-            console.log(`[monitor] ${lp.id}: create log matched ${signature.slice(0, 16)}…`);
-            enqueue(lp, signature);
+      ws.on("message", (data: unknown) => {
+        try {
+          const msg = JSON.parse(String(data)) as {
+            method?: string;
+            params?: { result: { value: Logs & { signature: string } } };
+          };
+          if (msg.method === "logsNotification" && msg.params) {
+            handleLogsNotification(lp, msg.params.result.value);
           }
-        },
-        "confirmed"
-      );
-      console.log(`[monitor] ${lp.id}: websocket subscribed`);
-      setState(lp.id, "live");
-      backoff = 2_000;
+        } catch {
+          // ignore malformed frames
+        }
+      });
+
+      ws.on("error", (err: Error) => {
+        console.warn(
+          `[monitor] ${lp.id}: ws error — ${String(err).slice(0, 120)}`
+        );
+      });
+
+      ws.on("close", () => {
+        if (closed) return;
+        setState(lp.id, "offline");
+        console.warn(
+          `[monitor] ${lp.id}: ws closed, reconnecting in ${backoff}ms`
+        );
+        setTimeout(connect, backoff);
+        backoff = Math.min(backoff * 2, 60_000);
+      });
+
+      // hard liveness: if no data for 90s (pump.fun is busy), force reconnect
+      const watchdog = setInterval(() => {
+        const s = state.get(lp.id);
+        if (!s) return;
+        const stale =
+          s.lastEventAt === null || Date.now() - s.lastEventAt > 90_000;
+        if (stale) {
+          console.warn(`[monitor] ${lp.id}: ws stale, forcing reconnect`);
+          try {
+            ws.terminate();
+          } catch {
+            /* already dead */
+          }
+          clearInterval(watchdog);
+        }
+      }, 30_000);
+      ws.on("close", () => clearInterval(watchdog));
     } catch (err) {
       console.warn(
-        `[monitor] ${lp.id}: ws subscribe failed, retrying in ${backoff}ms — ${String(err).slice(0, 120)}`
+        `[monitor] ${lp.id}: ws connect failed, retrying in ${backoff}ms — ${String(err).slice(0, 120)}`
       );
       setState(lp.id, "offline");
-      setTimeout(() => void subscribe(), backoff);
+      setTimeout(connect, backoff);
       backoff = Math.min(backoff * 2, 60_000);
     }
   };
 
-  await subscribe();
-
-  // health check: a busy program with zero notifications for 10 minutes
-  // means the socket silently died — force a reconnect
-  setInterval(() => {
-    const s = state.get(lp.id);
-    if (!s || s.status !== "live") return;
-    const stale = s.lastEventAt === null || Date.now() - s.lastEventAt > 10 * 60_000;
-    if (stale) {
-      console.warn(`[monitor] ${lp.id}: socket stale, resubscribing`);
-      setState(lp.id, "connecting");
-      void subscribe();
-    }
-  }, 5 * 60_000);
+  connect();
   void program;
 }
 
