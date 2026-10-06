@@ -1,305 +1,361 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import type { FeedEvent, LaunchItem, MonitorInfo } from "@/lib/types";
-import { verdictColor } from "@/components/indicators";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import type { LaunchItem } from "@/lib/types";
 
-interface WatchEntry {
-  address: string;
-  label: string | null;
-  added_at: number;
+interface Stats {
+  totalLaunches: number;
+  uniqueDevs: number;
+  last24h: number;
+  last7d: number;
+  last30d: number;
+}
+interface Daily {
+  date: string;
+  count: number;
+  launchpad: string;
+}
+interface Meta {
+  mcap: number | null;
+  image: string | null;
+  ath: number | null;
 }
 
-export default function Dashboard() {
-  const router = useRouter();
-  const [query, setQuery] = useState("");
-  const [watchlist, setWatchlist] = useState<WatchEntry[]>([]);
-  const [events, setEvents] = useState<FeedEvent[]>([]);
-  const [launches, setLaunches] = useState<LaunchItem[]>([]);
-  const [monitors, setMonitors] = useState<MonitorInfo[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const launchesRef = useRef<HTMLDivElement>(null);
+const PUMP = "#1fb67a";
+const STONK = "#2f6fe4";
 
-  const load = useCallback(async () => {
-    try {
-      const [w, f] = await Promise.all([
-        fetch("/api/watchlist").then((r) => r.json()),
-        fetch("/api/feed").then((r) => r.json()),
-      ]);
-      setWatchlist(w.watchlist ?? []);
-      setEvents(f.events ?? []);
-      setLaunches(f.launches ?? []);
-      setMonitors(f.monitors ?? []);
-    } catch {
-      /* dashboard data is best-effort */
-    }
+const CHIPS = [
+  "All",
+  "Called",
+  "Crazy dev",
+  "Proven dev",
+  "Good dev",
+  "Unknown dev",
+  "Farmer",
+] as const;
+type Chip = (typeof CHIPS)[number];
+const SOURCES = ["All", "pump.fun", "StonkFun"] as const;
+type Source = (typeof SOURCES)[number];
+
+const fmt = (n: number) => n.toLocaleString("en-US");
+function usd(n: number | null | undefined) {
+  if (n == null) return "—";
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
+  return `$${Math.round(n)}`;
+}
+function ago(unix: number) {
+  const s = Math.max(0, Math.floor(Date.now() / 1000) - unix);
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+const short = (a: string) => `${a.slice(0, 4)}…${a.slice(-4)}`;
+const sourceName = (id: string) => (id === "stonk" ? "StonkFun" : "pump.fun");
+
+function Avatar({ mint, symbol, image }: { mint: string; symbol: string; image: string | null }) {
+  const [bad, setBad] = useState(false);
+  const src = image ?? (mint.endsWith("pump") ? `https://images.pump.fun/coin-image/${mint}?imageSize=128` : null);
+  if (!src || bad)
+    return (
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] bg-[#26262a] font-bold text-zinc-300">
+        {(symbol || "?")[0].toUpperCase()}
+      </div>
+    );
+  // eslint-disable-next-line @next/next/no-img-element
+  return (
+    <img
+      src={src}
+      alt=""
+      loading="lazy"
+      onError={() => setBad(true)}
+      className="h-11 w-11 shrink-0 rounded-[10px] bg-[#26262a] object-cover"
+    />
+  );
+}
+
+function DevCell({ l, count }: { l: LaunchItem; count: number }) {
+  const v = l.devVerdict;
+  const badge =
+    v === null
+      ? { t: "CHECKING", c: "text-zinc-400" }
+      : v === "Legit"
+        ? { t: "PROVEN DEV", c: "text-emerald-400" }
+        : v === "Suspicious"
+          ? { t: "CRAZY DEV", c: "text-amber-400" }
+          : { t: "FARMER", c: "text-red-400" };
+  return (
+    <div>
+      <div className={`mono flex items-center gap-2 text-xs tracking-wider ${badge.c}`}>
+        <span>●</span>
+        {badge.t}
+        {l.devScore !== null && <span className="text-zinc-500">{Math.round(l.devScore)}/100</span>}
+      </div>
+      <div className="mt-1 text-[13px] text-zinc-400">
+        <Link href={`/wallet/${l.dev}`} className="mono hover:text-white">
+          {short(l.dev)}
+        </Link>{" "}
+        · {v === null ? "reading wallet history…" : `${count} launch${count === 1 ? "" : "es"} in feed`}
+      </div>
+    </div>
+  );
+}
+
+export default function Live() {
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [daily, setDaily] = useState<Daily[]>([]);
+  const [launches, setLaunches] = useState<LaunchItem[]>([]);
+  const [meta, setMeta] = useState<Record<string, Meta>>({});
+  const [chip, setChip] = useState<Chip>("All");
+  const [source, setSource] = useState<Source>("All");
+  const [range, setRange] = useState<"24h" | "7d" | "30d" | "3m">("24h");
+
+  useEffect(() => {
+    const loadStats = () =>
+      fetch("/api/stats")
+        .then((r) => r.json())
+        .then((d) => {
+          setStats(d.stats);
+          setDaily(d.launchesPerDay ?? []);
+        })
+        .catch(() => {});
+    loadStats();
+    const t = setInterval(loadStats, 30_000);
+    return () => clearInterval(t);
   }, []);
 
   useEffect(() => {
+    const load = () =>
+      fetch("/api/feed")
+        .then((r) => r.json())
+        .then((d) => setLaunches(d.launches ?? []))
+        .catch(() => {});
     load();
-    const t = setInterval(load, 6_000); // live feed refresh
+    const t = setInterval(load, 6_000);
     return () => clearInterval(t);
-  }, [load]);
+  }, []);
 
-  function submit(e: React.FormEvent) {
-    e.preventDefault();
-    const addr = query.trim();
-    if (addr.length < 32) {
-      setError("That doesn't look like a Solana address (should be ~44 chars).");
-      return;
-    }
-    setError(null);
-    router.push(`/wallet/${addr}`);
-  }
-
-  async function addToWatch() {
-    const addr = query.trim();
-    if (addr.length < 32) {
-      setError("Enter a valid address first.");
-      return;
-    }
-    await fetch("/api/watchlist", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ address: addr }),
-    });
+  const mintKey = launches.map((l) => l.mint).join(",");
+  useEffect(() => {
+    if (!mintKey) return;
+    const load = () =>
+      fetch(`/api/coins?mints=${mintKey}`)
+        .then((r) => r.json())
+        .then((d) => setMeta((m) => ({ ...m, ...d.coins })))
+        .catch(() => {});
     load();
-  }
+    const t = setInterval(load, 20_000);
+    return () => clearInterval(t);
+  }, [mintKey]);
 
-  async function removeWatch(addr: string) {
-    await fetch(`/api/watchlist?address=${addr}`, { method: "DELETE" });
-    load();
-  }
+  const devCounts = useMemo(() => {
+    const c = new Map<string, number>();
+    for (const l of launches) c.set(l.dev, (c.get(l.dev) ?? 0) + 1);
+    return c;
+  }, [launches]);
 
-  function timeAgo(unix: number): string {
-    const s = Math.max(0, Math.floor(Date.now() / 1000) - unix);
-    if (s < 60) return `${s}s ago`;
-    if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-    if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-    return `${Math.floor(s / 86400)}d ago`;
-  }
-
-  function MonitorPill({ monitor: m }: { monitor: MonitorInfo }) {
-    const style =
-      m.status === "live"
-        ? "text-emerald-300 border-emerald-500/40"
-        : m.status === "connecting"
-          ? "text-amber-300 border-amber-500/40"
-          : "text-slate-500 border-edge";
-    return (
-      <span
-        className={`rounded-full border px-2.5 py-0.5 text-xs ${style}`}
-        title={
-          m.status === "unconfigured"
-            ? "Set STONK_PROGRAM_ID in .env.local once the Stonk program address is public"
-            : `last event: ${m.lastEventAt ? timeAgo(Math.floor(m.lastEventAt / 1000)) : "never"} · ${m.launches} launches caught`
-        }
-      >
-        {m.name}: {m.status}
-        {m.status === "unconfigured" ? " (awaiting program id)" : ""}
-      </span>
-    );
-  }
-
-  function DevRiskPill({
-    score,
-    verdict,
-  }: {
-    score: number | null;
-    verdict: string | null;
-  }) {
-    if (score === null || verdict === null) {
-      return (
-        <span className="rounded-full border border-edge px-2 py-0.5 text-[10px] text-slate-500 animate-pulse">
-          analyzing dev…
-        </span>
-      );
+  const rows = launches.filter((l) => {
+    if (source !== "All" && sourceName(l.launchpad) !== source) return false;
+    switch (chip) {
+      case "Called":
+        return false; // callout bot not wired up yet
+      case "Crazy dev":
+        return l.devVerdict === "Suspicious";
+      case "Proven dev":
+        return l.devVerdict === "Legit";
+      case "Good dev":
+        return l.devVerdict === "Legit" && (l.devScore ?? 100) <= 20;
+      case "Unknown dev":
+        return l.devVerdict === null;
+      case "Farmer":
+        return l.devVerdict === "Likely Rugged";
+      default:
+        return true;
     }
-    const c = verdictColor(verdict);
-    return (
-      <span
-        className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${c.text} ${c.bg} ${c.border}`}
-        title={`${verdict} — score ${score}/100 (click the dev address for the full report)`}
-      >
-        {verdict === "Likely Rugged"
-          ? "🚨"
-          : verdict === "Suspicious"
-            ? "⚠"
-            : "✓"}{" "}
-        dev {score}/100
-      </span>
-    );
-  }
+  });
+
+  // chart: one stacked bar per day
+  const days = useMemo(() => {
+    const m = new Map<string, { pump: number; stonk: number }>();
+    for (const d of daily) {
+      const e = m.get(d.date) ?? { pump: 0, stonk: 0 };
+      if (d.launchpad === "stonk") e.stonk += d.count;
+      else e.pump += d.count;
+      m.set(d.date, e);
+    }
+    return [...m.entries()].map(([date, v]) => ({ date, ...v }));
+  }, [daily]);
+  const maxDay = Math.max(1, ...days.map((d) => d.pump + d.stonk));
+  const rangeCount = stats
+    ? { "24h": stats.last24h, "7d": stats.last7d, "30d": stats.last30d, "3m": stats.totalLaunches }[range]
+    : null;
 
   return (
-    <div className="space-y-8">
-      {/* Hero + search */}
-      <section className="text-center space-y-4 pt-6">
-        <h1 className="text-3xl sm:text-4xl font-bold">
-          Is this dev <span className="text-emerald-300">legit</span> — or{" "}
-          <span className="text-red-300">about to rug</span> you?
-        </h1>
-        <p className="text-slate-400 max-w-xl mx-auto">
-          Paste any Solana wallet that launched tokens (e.g. on pump.fun).
-          BigBrother scans its on-chain history and scores the rug risk.
-        </p>
-        <form onSubmit={submit} className="flex max-w-2xl mx-auto gap-2">
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Solana wallet address, e.g. 7xKX…gP2n"
-            className="mono flex-1 rounded-lg border border-edge bg-panel px-4 py-3 text-sm outline-none focus:border-accent"
-          />
-          <button
-            type="submit"
-            className="rounded-lg bg-accent px-6 py-3 text-sm font-semibold text-white hover:brightness-110"
-          >
-            Scan
-          </button>
-        </form>
-        {error && <p className="text-sm text-red-400">{error}</p>}
-        <button
-          onClick={addToWatch}
-          className="text-xs text-slate-400 hover:text-slate-200 underline"
-        >
-          + add this wallet to watchlist instead
-        </button>
+    <div>
+      <div className="flex flex-wrap items-start justify-between gap-6">
+        <div className="min-w-[320px] flex-1">
+          <h1 className="mb-3.5 mt-3.5 text-[40px] font-bold tracking-tight">Who launched it?</h1>
+          <p className="max-w-[680px] text-[17px] leading-normal text-zinc-400">
+            Every new coin on pump.fun and StonkFun, tagged by the dev&apos;s track record: past
+            launches, best ATH, and how many of their coins pulled real fees.
+          </p>
+        </div>
+        <div className="grid w-full max-w-[680px] grid-cols-3 overflow-hidden rounded-[14px] border border-edge bg-panel">
+          <div className="border-r border-edge p-5">
+            <div className="text-sm text-zinc-400">Launches</div>
+            <div className="mono mt-2.5 text-[26px] font-semibold">
+              {rangeCount === null ? "—" : fmt(rangeCount)}
+            </div>
+            <div className="mt-2 flex gap-3 text-xs">
+              {(["24h", "7d", "30d", "3m"] as const).map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setRange(r)}
+                  className={`mono ${r === range ? "font-bold text-white" : "text-zinc-600"}`}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="border-r border-edge p-5">
+            <div className="text-sm text-zinc-400">Devs ranked</div>
+            <div className="mono mt-2.5 text-[26px] font-semibold">
+              {stats ? fmt(stats.uniqueDevs) : "—"}
+            </div>
+          </div>
+          <div className="p-5">
+            <div className="text-sm text-zinc-400">Callouts</div>
+            <div className="mono mt-2.5 text-[26px] font-semibold">0</div>
+            <div className="mt-2 text-xs text-zinc-500">bot warming up</div>
+          </div>
+        </div>
+      </div>
+
+      <section className="mt-7 rounded-[14px] border border-edge bg-panel p-5">
+        <div className="flex flex-wrap justify-between gap-2">
+          <div>
+            <div className="text-[17px] font-semibold">Launches per day</div>
+            <div className="mt-1.5 text-[13px] text-zinc-400">Last 90 days</div>
+          </div>
+          <div className="flex items-center gap-4 text-[13px] text-zinc-400">
+            <span className="flex items-center gap-1.5">
+              <i className="h-2.5 w-2.5 rounded-[3px]" style={{ background: PUMP }} />
+              pump.fun
+            </span>
+            <span className="flex items-center gap-1.5">
+              <i className="h-2.5 w-2.5 rounded-[3px]" style={{ background: STONK }} />
+              StonkFun
+            </span>
+          </div>
+        </div>
+        <div className="mt-5 flex h-[140px] items-end gap-[3px]">
+          {days.length === 0 && <div className="text-sm text-zinc-500">Collecting launches…</div>}
+          {days.map((d) => (
+            <div
+              key={d.date}
+              title={`${d.date}: ${fmt(d.pump + d.stonk)} launches`}
+              className="flex h-full flex-1 flex-col justify-end"
+            >
+              <div style={{ height: `${(d.stonk / maxDay) * 100}%`, background: STONK }} />
+              <div style={{ height: `${(d.pump / maxDay) * 100}%`, background: PUMP }} />
+            </div>
+          ))}
+        </div>
+        {days.length > 0 && (
+          <div className="mono mt-2 flex justify-between text-xs text-zinc-500">
+            <span>{days[0].date}</span>
+            <span>{days[days.length - 1].date}</span>
+          </div>
+        )}
       </section>
 
-      {/* Monitor status + live launches */}
-      <section className="panel">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-          <h2 className="font-semibold">
-            <span className="relative inline-flex h-2 w-2 mr-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
-            </span>
-            Live launches
-          </h2>
-          <div className="flex flex-wrap gap-2">
-            {monitors.map((m) => (
-              <MonitorPill key={m.id} monitor={m} />
+      <section className="mt-7 overflow-hidden rounded-[14px] border border-edge bg-panel">
+        <div className="flex flex-wrap items-center justify-between gap-3 p-[18px]">
+          <div className="flex flex-wrap gap-2.5 text-sm">
+            {CHIPS.map((c) => (
+              <button
+                key={c}
+                onClick={() => setChip(c)}
+                className={`rounded-[9px] border px-4 py-2.5 ${
+                  c === chip
+                    ? "border-zinc-100 bg-zinc-100 text-bg"
+                    : "border-[#26262a] text-zinc-300 hover:border-zinc-500"
+                }`}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-1 rounded-[10px] border border-edge bg-bg p-1 text-sm">
+            {SOURCES.map((s) => (
+              <button
+                key={s}
+                onClick={() => setSource(s)}
+                className={`rounded-lg px-4 py-2 ${s === source ? "bg-[#1b1b1e] text-white" : "text-zinc-400"}`}
+              >
+                {s}
+              </button>
             ))}
           </div>
         </div>
-        <div ref={launchesRef}>
-          {launches.length === 0 ? (
-            <p className="text-sm text-slate-500">
-              Waiting for the next launch… the monitor is watching the chains
-              in real time (pump.fun via websocket + 45s safety poller).
-            </p>
-          ) : (
-            <ul className="space-y-2 max-h-96 overflow-y-auto">
-              {launches.map((l) => (
-                <li
+
+        <div className="overflow-x-auto">
+          <div className="min-w-[900px]">
+            <div className="mono grid grid-cols-[2fr_3fr_1fr_1fr] border-t border-edge px-[22px] py-4 text-xs tracking-[0.08em] text-zinc-500">
+              <span>COIN</span>
+              <span>DEV</span>
+              <span className="text-right">MCAP</span>
+              <span className="text-right">CALLOUT</span>
+            </div>
+            {rows.length === 0 && (
+              <div className="border-t border-edge px-[22px] py-8 text-sm text-zinc-500">
+                Waiting for matching launches…
+              </div>
+            )}
+            {rows.map((l) => {
+              const m = meta[l.mint];
+              const name = l.name ?? l.symbol ?? "unnamed";
+              return (
+                <div
                   key={l.signature}
-                  className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-edge bg-bg px-3 py-2 text-sm"
+                  className="grid grid-cols-[2fr_3fr_1fr_1fr] items-center border-t border-edge px-[22px] py-3.5"
                 >
-                  <span>🚀</span>
-                  <span className="font-semibold">
-                    {l.symbol ?? l.name ?? "unnamed"}
-                  </span>
-                  <span className="text-[10px] uppercase tracking-wide rounded border px-1.5 py-0.5 border-edge text-slate-400">
-                    {l.launchpad}
-                  </span>
-                  <a
-                    href={`https://solscan.io/token/${l.mint}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mono text-xs text-slate-400 hover:text-accent"
-                  >
-                    {l.mint.slice(0, 6)}…{l.mint.slice(-4)}
-                  </a>
-                  <span className="text-slate-500 text-xs">by</span>
-                  <a
-                    href={`/wallet/${l.dev}`}
-                    className="mono text-xs text-accent hover:underline"
-                  >
-                    dev {l.dev.slice(0, 4)}…{l.dev.slice(-4)}
-                  </a>
-                  <DevRiskPill score={l.devScore} verdict={l.devVerdict} />
-                  <span className="ml-auto text-xs text-slate-600">
-                    {timeAgo(l.blockTime)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </section>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Watchlist */}
-        <section className="panel">
-          <h2 className="font-semibold mb-4">Watchlist ({watchlist.length})</h2>
-          {watchlist.length === 0 ? (
-            <p className="text-sm text-slate-500">
-              No wallets tracked yet. Add one above, then scan it to see its risk
-              report here.
-            </p>
-          ) : (
-            <ul className="space-y-2">
-              {watchlist.map((w) => (
-                <li
-                  key={w.address}
-                  className="flex items-center justify-between rounded-lg border border-edge bg-bg px-3 py-2"
-                >
-                  <a
-                    href={`/wallet/${w.address}`}
-                    className="mono text-sm hover:text-accent"
-                  >
-                    {w.address.slice(0, 6)}…{w.address.slice(-6)}
-                  </a>
-                  <button
-                    onClick={() => removeWatch(w.address)}
-                    className="text-xs text-slate-500 hover:text-red-400"
-                  >
-                    remove
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        {/* Activity feed */}
-        <section className="panel">
-          <h2 className="font-semibold mb-4">
-            Activity feed
-            <span className="ml-2 text-xs text-slate-500">
-              (refreshes every 6s)
-            </span>
-          </h2>
-          {events.length === 0 ? (
-            <p className="text-sm text-slate-500">
-              Nothing yet — scan a wallet and results will appear here.
-            </p>
-          ) : (
-            <ul className="space-y-2 max-h-80 overflow-y-auto">
-              {events.map((ev) => {
-                const c = verdictColor(ev.verdict ?? "");
-                return (
-                  <li
-                    key={ev.id}
-                    className="flex items-start gap-3 rounded-lg border border-edge bg-bg px-3 py-2 text-sm"
-                  >
-                    <span className="mt-0.5">
-                      {ev.kind === "flag" ? "🚩" : ev.kind === "watch" ? "👁️" : ev.kind === "launch" ? "🚀" : "🔍"}
-                    </span>
-                    <div className="flex-1">
-                      <span className={c.text}>{ev.message}</span>
-                      <div className="text-xs text-slate-600">
-                        {new Date(ev.createdAt * 1000).toLocaleString()}
+                  <div className="flex items-center gap-3.5">
+                    <Avatar mint={l.mint} symbol={l.symbol ?? name} image={m?.image ?? null} />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 text-base font-semibold">
+                        <span className="truncate">{name}</span>
+                        <span
+                          className="rounded-[5px] px-1.5 py-0.5 text-[11px] font-medium"
+                          style={
+                            l.launchpad === "stonk"
+                              ? { background: "#16233d", color: "#5b9bff" }
+                              : { background: "#10261e", color: "#34d399" }
+                          }
+                        >
+                          {sourceName(l.launchpad)}
+                        </span>
+                      </div>
+                      <div className="mono mt-1 text-[13px] text-zinc-400">
+                        ${l.symbol ?? "?"} · {ago(l.blockTime)}
                       </div>
                     </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
-      </div>
+                  </div>
+                  <DevCell l={l} count={devCounts.get(l.dev) ?? 1} />
+                  <div className="text-right">
+                    <div className="mono text-base font-semibold">{usd(m?.mcap)}</div>
+                    <div className="mono mt-1 text-xs text-zinc-500">ATH {usd(m?.ath)}</div>
+                  </div>
+                  <div className="text-right text-zinc-600">—</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

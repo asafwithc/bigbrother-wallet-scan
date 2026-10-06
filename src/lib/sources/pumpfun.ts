@@ -108,7 +108,7 @@ export async function scanWalletPumpActivity(
   wallet: PublicKey,
   maxTxs = 30
 ): Promise<DevTxScan> {
-  const sigs = await rpc.getSignaturesForAddress(wallet, { limit: 150 });
+  const sigs = await rpc.getSignaturesForAddress(wallet, { limit: 50 }); // reduced from 150 to 50
   const result: DevTxScan = {
     createdMints: [],
     soldMints: new Set(),

@@ -16,7 +16,7 @@ import { scoreWallet, type TokenFacts } from "./score";
 import { get_cached_report, save_report, add_event } from "../db";
 import type { TokenReport, WalletReport, TokenStatus } from "../types";
 
-const MAX_TOKENS_TO_ANALYZE = 10;
+const MAX_TOKENS_TO_ANALYZE = 3; // reduced from 10 to 3 for faster public RPC analysis
 
 /**
  * Full wallet analysis pipeline:
@@ -52,8 +52,10 @@ export async function analyzeWallet(
   const ageDays = firstSeenAt !== null ? (nowSec - firstSeenAt) / 86400 : null;
 
   // ---- pump.fun activity ----------------------------------------------
-  const scan = await scanWalletPumpActivity(wallet, 30);
+  console.log(`[analyze] scanning pump.fun activity for ${shortAddr(address)}…`);
+  const scan = await scanWalletPumpActivity(wallet, 15); // reduced from 30 to 15 for faster analysis
   const created = scan.createdMints.filter((c) => c.mint !== "unknown");
+  console.log(`[analyze] found ${created.length} token(s) created by ${shortAddr(address)}`);
 
   // days between first and most recent launch (for velocity)
   const times = created.map((c) => c.blockTime).filter((t): t is number => !!t);
@@ -66,17 +68,24 @@ export async function analyzeWallet(
   const tokenReports: TokenReport[] = [];
   const tokenFacts: TokenFacts[] = [];
 
-  for (const c of recent) {
+  console.log(`[analyze] analyzing ${recent.length} recent token(s) for ${shortAddr(address)}…`);
+  for (let i = 0; i < recent.length; i++) {
+    const c = recent[i];
+    console.log(`[analyze] token ${i + 1}/${recent.length}: ${c.mint.slice(0, 8)}…`);
     const report = await analyzeToken(
       c.mint,
       address,
       scan.soldMints.has(c.mint),
       c.blockTime
     );
-    if (!report) continue;
+    if (!report) {
+      console.log(`[analyze] token ${i + 1}/${recent.length}: no data, skipping`);
+      continue;
+    }
     tokenReports.push(report);
     tokenFacts.push(toFacts(report));
   }
+  console.log(`[analyze] completed token analysis for ${shortAddr(address)}, generating score…`);
 
   // ---- score ------------------------------------------------------------
   const { score, verdict, signals } = scoreWallet({

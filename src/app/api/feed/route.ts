@@ -19,7 +19,7 @@ export async function GET() {
   }));
   return NextResponse.json({
     events,
-    launches: get_launches(30),
+    launches: get_launches(60),
     monitors: getMonitorStatuses(),
   });
 }

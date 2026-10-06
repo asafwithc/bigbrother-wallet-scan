@@ -398,7 +398,14 @@ async function drainAnalysis(): Promise<void> {
     const { dev, via } = item;
     try {
       console.log(`[monitor] analyzing dev ${short(dev)} (launch: ${via})…`);
-      const report = await analyzeWallet(dev, false); // cache-aware
+      // Timeout wrapper: public RPC analysis must complete within 2 minutes or bail
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Analysis timeout (120s)")), 120_000)
+      );
+      const report = await Promise.race([
+        analyzeWallet(dev, false), // cache-aware
+        timeoutPromise
+      ]);
       update_launch_dev(dev, report.score, report.verdict);
       console.log(
         `[monitor] dev ${short(dev)} => ${report.verdict} (${report.score}/100), ${report.tokens.length} token(s)`
