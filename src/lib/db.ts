@@ -51,6 +51,16 @@ function getDb(): Database.Database {
       dev_verdict TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_launches_time ON launches(block_time DESC);
+
+    -- Historical daily launch counts (aggregate only, from Bitquery archive).
+    -- Fills the "launches per day" chart for days before the monitor ran.
+    CREATE TABLE IF NOT EXISTS launch_history (
+      date TEXT NOT NULL,          -- YYYY-MM-DD (UTC)
+      launchpad TEXT NOT NULL,
+      count INTEGER NOT NULL,
+      imported_at INTEGER NOT NULL,
+      PRIMARY KEY (date, launchpad)
+    );
   `);
   // lightweight migration for dev risk columns
   const cols = (getDb().pragma("table_info(launches)") as { name: string }[]).map(
@@ -77,6 +87,7 @@ export interface LaunchRow {
   devVerdict: string | null;
 }
 
+/** Returns the number of rows actually inserted (0 if the signature was already known). */
 export function add_launch(l: {
   signature: string;
   mint: string;
@@ -85,13 +96,13 @@ export function add_launch(l: {
   symbol: string | null;
   dev: string;
   blockTime: number;
-}): void {
-  getDb()
+}): number {
+  return getDb()
     .prepare(
       `INSERT OR IGNORE INTO launches (signature, mint, launchpad, name, symbol, dev, block_time, dev_score, dev_verdict)
        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)`
     )
-    .run(l.signature, l.mint, l.launchpad, l.name, l.symbol, l.dev, l.blockTime);
+    .run(l.signature, l.mint, l.launchpad, l.name, l.symbol, l.dev, l.blockTime).changes;
 }
 
 /** Attach a dev risk verdict to every recorded launch of that dev. */
@@ -221,4 +232,45 @@ export function get_watchlist(): { address: string; label: string | null; added_
   return getDb()
     .prepare("SELECT address, label, added_at FROM watchlist ORDER BY added_at DESC")
     .all() as { address: string; label: string | null; added_at: number }[];
+}
+
+/* ------------------------- launch history (aggregate) --------------------- */
+
+export interface HistoryRow {
+  date: string;
+  launchpad: string;
+  count: number;
+}
+
+export function upsert_launch_history(
+  rows: { date: string; launchpad: string; count: number }[]
+): number {
+  const stmt = getDb().prepare(
+    `INSERT INTO launch_history (date, launchpad, count, imported_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(date, launchpad) DO UPDATE SET
+       count = excluded.count,
+       imported_at = excluded.imported_at`
+  );
+  const now = Math.floor(Date.now() / 1000);
+  let changes = 0;
+  const tx = getDb().transaction((batch: { date: string; launchpad: string; count: number }[]) => {
+    for (const r of batch) stmt.run(r.date, r.launchpad, r.count, now);
+  });
+  tx(rows);
+  return changes;
+}
+
+export function get_launch_history(): HistoryRow[] {
+  return getDb()
+    .prepare("SELECT date, launchpad, count FROM launch_history ORDER BY date ASC")
+    .all() as HistoryRow[];
+}
+
+/** Latest date already present in launch_history (null when empty). */
+export function get_history_max_date(): string | null {
+  const row = getDb()
+    .prepare("SELECT MAX(date) as d FROM launch_history")
+    .get() as { d: string | null };
+  return row.d;
 }

@@ -98,9 +98,9 @@ export default function ReputationPage() {
           acc[curr.date] = { pumpfun: 0, stonkfun: 0 };
         }
         if (curr.launchpad === "pumpfun") {
-          acc[curr.date].pumpfun = curr.count;
+          acc[curr.date].pumpfun += curr.count;
         } else if (curr.launchpad === "stonkfun") {
-          acc[curr.date].stonkfun = curr.count;
+          acc[curr.date].stonkfun += curr.count;
         }
         return acc;
       },

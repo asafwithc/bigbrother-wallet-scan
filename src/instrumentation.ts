@@ -10,5 +10,9 @@ export async function register() {
   ) {
     const { startMonitor } = await import("./lib/monitor");
     startMonitor();
+    const { startBackfill } = await import("./lib/backfill");
+    startBackfill();
+    const { startHistoryBackfill } = await import("./lib/historyBackfill");
+    startHistoryBackfill();
   }
 }
