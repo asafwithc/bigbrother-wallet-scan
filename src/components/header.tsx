@@ -6,12 +6,10 @@ import { usePathname, useRouter } from "next/navigation";
 
 const NAV = [
   { label: "Live", href: "/" },
-  { label: "Terminal", href: "#" },
-  { label: "Screener", href: "#" },
-  { label: "Devs", href: "/reputation" },
-  { label: "Leaderboard", href: "#" },
-  { label: "X commands", href: "#" },
-  { label: "How it works", href: "#" },
+  { label: "Terminal", href: "/terminal" },
+  { label: "Devs", href: "/devs" },
+  { label: "X commands", href: "/x-commands" },
+  { label: "How it works", href: "/how" },
 ];
 
 export function Header() {
@@ -56,9 +54,6 @@ export function Header() {
             className="h-10 w-full rounded-[10px] border border-[#26262a] bg-panel px-4 text-sm outline-none placeholder:text-zinc-500 focus:border-zinc-500"
           />
         </form>
-        <button className="h-10 rounded-[10px] border border-[#26262a] bg-panel px-4 text-sm">
-          Alerts off
-        </button>
         <button className="h-10 rounded-[10px] bg-white px-4 text-sm font-semibold text-bg">
           Sign in
         </button>

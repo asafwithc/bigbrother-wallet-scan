@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import Database from "better-sqlite3";
 import path from "path";
+import { getLaunchChart } from "@/lib/launchStats";
+import { ensureCalloutPicks } from "@/lib/callouts";
 
 export const dynamic = "force-dynamic";
 
@@ -88,26 +90,14 @@ export async function GET() {
     }
   }
 
-  // Zero-fill: ensure every day in the range exists so the chart
-  // renders one slot per day even when data only covers a few days
-  const countsByDatePad = new Map<string, Map<string, number>>();
-  for (const row of launchesPerDayRaw) {
-    if (!countsByDatePad.has(row.date)) countsByDatePad.set(row.date, new Map());
-    const pads = countsByDatePad.get(row.date)!;
-    pads.set(row.launchpad, (pads.get(row.launchpad) ?? 0) + row.count);
-  }
-  const launchesPerDay: DailyLaunch[] = [];
-  for (let i = 89; i >= 0; i--) {
-    const date = new Date((now - i * 86400) * 1000).toISOString().slice(0, 10);
-    const pads = countsByDatePad.get(date);
-    if (pads) {
-      for (const [launchpad, count] of pads) {
-        launchesPerDay.push({ date, launchpad, count });
-      }
-    } else {
-      launchesPerDay.push({ date, launchpad: "pumpfun", count: 0 });
-    }
-  }
+  // The chart uses real launchpad-wide counts from Jupiter (see launchStats.ts),
+  // not this app's own launch records, which miss most launches.
+  const chart = await getLaunchChart();
+  // same data in the older per-launchpad row shape (used by /reputation)
+  const launchesPerDay: DailyLaunch[] = chart.days.flatMap((d) => [
+    { date: d.date, launchpad: "pumpfun", count: d.pump },
+    { date: d.date, launchpad: "stonk", count: d.stonk },
+  ]);
 
   // Get top devs by launch count
   const topDevs = db
@@ -136,16 +126,22 @@ export async function GET() {
     )
     .all() as { verdict: string; count: number }[];
 
+  // coins picked for a callout
+  ensureCalloutPicks();
+  const called = db.prepare("SELECT COUNT(*) AS count FROM callouts").get() as { count: number };
+
   db.close();
 
   return NextResponse.json({
     stats: {
       totalLaunches: totalLaunches.count + historyTotal.all,
       uniqueDevs: uniqueDevs.count,
+      called: called.count,
       last24h: last24h.count,
       last7d: last7d.count + historyTotal.last7,
       last30d: last30d.count + historyTotal.last30,
     },
+    chart,
     launchesPerDay,
     topDevs,
     verdictStats,

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Header } from "@/components/header";
+import { Main } from "@/components/main";
 
 export const metadata: Metadata = {
   title: "BigBrother — Who launched it?",
@@ -17,9 +18,7 @@ export default function RootLayout({
     <html lang="en">
       <body>
         <Header />
-        <main className="mx-auto max-w-[1400px] px-6 pb-16 pt-9">
-          {children}
-        </main>
+        <Main>{children}</Main>
       </body>
     </html>
   );

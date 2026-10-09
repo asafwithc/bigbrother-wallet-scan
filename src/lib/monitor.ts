@@ -7,8 +7,8 @@ import {
   findMintInTx,
 } from "./sources/pumpfun";
 import { rpc, PUBLIC_RPC, RPC_WS_URL } from "./solana";
-import { add_launch, add_event, get_watchlist, update_launch_dev } from "./db";
-import { analyzeWallet } from "./analysis/analyze";
+import { add_launch, add_event, get_watchlist, update_launch_dev, getDb } from "./db";
+import { liteAnalyzeDev, provisionalGrade, regradeStaleDevs } from "./analysis/lite";
 
 /**
  * LaunchMonitor — continuously watches configured launchpads for new token
@@ -58,6 +58,9 @@ export function startMonitor(): void {
   started = true;
   g.__bbMonitorStarted = true;
   console.log("[monitor] starting launchpad watchers");
+  console.log(`[monitor] instantly graded ${regradeStaleDevs()} repeat-launch dev(s)`);
+  setTimeout(() => queueUnscoredDevs(), 5_000);
+  setInterval(() => queueUnscoredDevs(), 60_000); // keep working through the backlog
   for (const lp of LAUNCHPADS) {
     state.set(lp.id, { status: "unconfigured", lastEventAt: null, launches: 0 });
     if (!lp.programId) {
@@ -366,7 +369,14 @@ function recordLaunch(
   }
 
   // >>> real-time: score this dev's rug risk immediately
-  queueDevAnalysis(l.dev, label);
+  // instant grade from our own records, so a repeat launcher never shows as unknown
+  // (only when the dev has no real grade yet; the full check below refines it)
+  const cur = getDb()
+    .prepare("SELECT MAX(dev_verdict) AS v FROM launches WHERE dev = ?")
+    .get(l.dev) as { v: string | null };
+  const quick = cur.v === null || cur.v === "Unknown" ? provisionalGrade(l.dev) : null;
+  if (quick) update_launch_dev(l.dev, quick.score, quick.verdict);
+  queueDevAnalysis(l.dev, label, l.mint);
   console.log(`[monitor] ${lp.id}: LAUNCH ${label} by ${short(l.dev)} — https://pump.fun/coin/${l.mint}`);
 }
 
@@ -380,67 +390,96 @@ const seenLaunchSignatures = new Set<string>();
  * feed, so the UI shows the verdict seconds after the token appears.
  * One analysis at a time — the public RPC can't take more.
  */
-const devQueue: { dev: string; via: string; attempts: number }[] = [];
-let analyzing = false;
+const devQueue: { dev: string; via: string; mint: string | null; attempts: number }[] = [];
+let activeAnalyses = 0;
+const MAX_PARALLEL = 6; // lite checks are cheap (DexScreener + ≤1 RPC call)
 
-function queueDevAnalysis(dev: string, via: string): void {
+function queueDevAnalysis(dev: string, via: string, mint: string | null = null): void {
   if (devQueue.some((q) => q.dev === dev)) return;
-  if (devQueue.length >= 30) return; // don't let the queue grow unbounded
-  devQueue.push({ dev, via, attempts: 0 });
+  if (devQueue.length >= 300) return; // don't let the queue grow unbounded
+  devQueue.push({ dev, via, mint, attempts: 0 });
   void drainAnalysis();
 }
 
+/** Re-run the full check on every dev with 2+ coins (after a grading change). */
+export function requeueRepeatDevs(): number {
+  const rows = getDb()
+    .prepare(
+      "SELECT dev, MAX(mint) AS mint FROM launches GROUP BY dev HAVING COUNT(DISTINCT mint) >= 2 ORDER BY COUNT(DISTINCT mint) DESC"
+    )
+    .all() as { dev: string; mint: string }[];
+  for (const r of rows) {
+    if (!devQueue.some((q) => q.dev === r.dev))
+      devQueue.push({ dev: r.dev, via: "regrade", mint: r.mint, attempts: 0 });
+  }
+  void drainAnalysis();
+  return rows.length;
+}
+
+/** Score devs that were recorded while the analyzer was broken/offline. */
+export function queueUnscoredDevs(limit = 150): void {
+  const rows = getDb()
+    .prepare(
+      "SELECT dev, mint FROM launches WHERE dev_verdict IS NULL GROUP BY dev ORDER BY COUNT(*) DESC, MAX(block_time) DESC LIMIT ?"
+    )
+    .all(limit) as { dev: string; mint: string }[];
+  for (const r of rows) queueDevAnalysis(r.dev, "backlog", r.mint);
+
+  // Unknown is only for single-launch devs: anyone marked Unknown with 2+ coins gets re-graded.
+  const stale = getDb()
+    .prepare(
+      "SELECT dev, MAX(mint) AS mint FROM launches GROUP BY dev HAVING MAX(dev_verdict) = 'Unknown' AND COUNT(DISTINCT mint) >= 2 LIMIT 300"
+    )
+    .all() as { dev: string; mint: string }[];
+  for (const r of stale) {
+    if (rechecked.has(r.dev)) continue;
+    rechecked.add(r.dev);
+    queueDevAnalysis(r.dev, "recheck", r.mint);
+  }
+}
+const rechecked = new Set<string>();
+
 async function drainAnalysis(): Promise<void> {
-  if (analyzing) return;
-  analyzing = true;
-  while (devQueue.length > 0) {
+  while (devQueue.length > 0 && activeAnalyses < MAX_PARALLEL) {
     const item = devQueue.shift()!;
-    const { dev, via } = item;
-    try {
-      console.log(`[monitor] analyzing dev ${short(dev)} (launch: ${via})…`);
-      // Timeout wrapper: public RPC analysis must complete within 2 minutes or bail
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Analysis timeout (120s)")), 120_000)
+    activeAnalyses++;
+    void analyzeOne(item).finally(() => {
+      activeAnalyses--;
+      void drainAnalysis();
+    });
+  }
+}
+
+async function analyzeOne(item: (typeof devQueue)[number]): Promise<void> {
+  const { dev, via, mint } = item;
+  try {
+    const r = await Promise.race([
+      liteAnalyzeDev(dev, mint),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout (45s)")), 45_000)),
+    ]);
+    update_launch_dev(dev, r.score, r.verdict);
+    console.log(`[monitor] dev ${short(dev)} => ${r.verdict} (${r.score}/100): ${r.reason}`);
+    if (r.verdict === "Likely Rugged") {
+      add_event(
+        dev,
+        "flag",
+        `🚨 LIVE FLAG: dev ${short(dev)} (launch ${via}) scored ${r.score}/100 — ${r.reason}`,
+        r.score,
+        r.verdict
       );
-      const report = await Promise.race([
-        analyzeWallet(dev, false), // cache-aware
-        timeoutPromise
-      ]);
-      update_launch_dev(dev, report.score, report.verdict);
-      console.log(
-        `[monitor] dev ${short(dev)} => ${report.verdict} (${report.score}/100), ${report.tokens.length} token(s)`
-      );
-      if (report.verdict === "Likely Rugged") {
-        add_event(
-          dev,
-          "flag",
-          `🚨 LIVE FLAG: dev ${short(dev)} (launch ${via}) scored ${report.score}/100 — ${report.verdict}`,
-          report.score,
-          report.verdict
-        );
-      }
-    } catch (err) {
-      // RPC throttling/outages are common on the public endpoint — put the
-      // dev back in the queue (with backoff) instead of dropping the verdict.
-      console.warn(
-        `[monitor] dev analysis ${short(dev)} failed: ${String(err).slice(0, 120)}`
-      );
-      if (item.attempts < 3) {
-        item.attempts++;
-        const delay = 60_000 * item.attempts;
-        console.log(
-          `[monitor] re-queuing dev ${short(dev)} in ${delay / 1000}s (attempt ${item.attempts + 1}/4)`
-        );
-        setTimeout(() => {
-          if (!devQueue.some((q) => q.dev === dev)) {
-            devQueue.push(item);
-            void drainAnalysis();
-          }
-        }, delay);
-      }
+    }
+  } catch (err) {
+    console.warn(`[monitor] dev check ${short(dev)} failed: ${String(err).slice(0, 120)}`);
+    if (item.attempts < 3) {
+      item.attempts++;
+      setTimeout(() => {
+        if (!devQueue.some((q) => q.dev === dev)) {
+          devQueue.push(item);
+          void drainAnalysis();
+        }
+      }, 15_000 * item.attempts);
     }
   }
-  analyzing = false;
 }
 
 /* --------------------------- polling fallback ----------------------------- */

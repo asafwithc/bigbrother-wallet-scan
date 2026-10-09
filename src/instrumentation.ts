@@ -14,5 +14,7 @@ export async function register() {
     startBackfill();
     const { startHistoryBackfill } = await import("./lib/historyBackfill");
     startHistoryBackfill();
+    const { ensureMarketScan } = await import("./lib/market");
+    ensureMarketScan();
   }
 }

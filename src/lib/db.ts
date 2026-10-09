@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import path from "path";
 import type { WalletReport } from "./types";
+import { tierSql } from "./tiers";
 
 /**
  * SQLite persistence: wallet report cache, watchlist, and feed events.
@@ -11,7 +12,7 @@ const DB_PATH = path.join(process.cwd(), "bigbrother.db");
 
 let db: Database.Database | null = null;
 
-function getDb(): Database.Database {
+export function getDb(): Database.Database {
   if (db) return db;
   db = new Database(DB_PATH);
   db.pragma("journal_mode = WAL");
@@ -51,6 +52,7 @@ function getDb(): Database.Database {
       dev_verdict TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_launches_time ON launches(block_time DESC);
+    CREATE INDEX IF NOT EXISTS idx_launches_dev ON launches(dev);
 
     -- Historical daily launch counts (aggregate only, from Bitquery archive).
     -- Fills the "launches per day" chart for days before the monitor ran.
@@ -143,6 +145,73 @@ export function get_launches(limit = 30): LaunchRow[] {
     devScore: r.dev_score,
     devVerdict: r.dev_verdict,
   }));
+}
+
+const TIER_SQL = tierSql("dev_verdict", "dev_score");
+
+/** One filtered page of launches, newest first, plus the total match count. */
+export function get_launches_page(opts: {
+  limit: number;
+  offset: number;
+  filter?: string; // "crazy" | "proven" | "good" | "unknown" | "farmer" | "called"
+  launchpad?: string;
+}): { launches: (LaunchRow & { devLaunches: number; called: boolean })[]; total: number } {
+  const where: string[] = [];
+  const args: (string | number)[] = [];
+  // "called" = coins picked for a callout (the `callouts` table, which the caller
+  // makes sure exists). One row per coin, even if the monitor recorded it twice.
+  if (opts.filter === "called")
+    where.push(
+      `mint IN (SELECT mint FROM callouts)
+       AND signature = (SELECT l3.signature FROM launches l3 WHERE l3.mint = launches.mint
+                        ORDER BY l3.block_time, l3.signature LIMIT 1)`
+    );
+  else if (opts.filter && opts.filter in TIER_SQL)
+    where.push(`(${TIER_SQL[opts.filter as keyof typeof TIER_SQL]})`);
+  if (opts.launchpad) {
+    where.push("launchpad = ?");
+    args.push(opts.launchpad);
+  }
+  const w = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const total = (
+    getDb().prepare(`SELECT COUNT(*) AS n FROM launches ${w}`).get(...args) as { n: number }
+  ).n;
+  const rows = getDb()
+    .prepare(
+      `SELECT signature, mint, launchpad, name, symbol, dev, block_time, dev_score, dev_verdict,
+              (SELECT COUNT(*) FROM launches l2 WHERE l2.dev = launches.dev) AS dev_launches,
+              EXISTS (SELECT 1 FROM callouts k WHERE k.mint = launches.mint) AS called
+       FROM launches ${w} ORDER BY block_time DESC LIMIT ? OFFSET ?`
+    )
+    .all(...args, opts.limit, opts.offset) as {
+    signature: string;
+    mint: string;
+    launchpad: string;
+    name: string | null;
+    symbol: string | null;
+    dev: string;
+    block_time: number;
+    dev_score: number | null;
+    dev_verdict: string | null;
+    dev_launches: number;
+    called: number;
+  }[];
+  return {
+    total,
+    launches: rows.map((r) => ({
+      signature: r.signature,
+      mint: r.mint,
+      launchpad: r.launchpad,
+      name: r.name,
+      symbol: r.symbol,
+      dev: r.dev,
+      blockTime: r.block_time,
+      devScore: r.dev_score,
+      devVerdict: r.dev_verdict,
+      devLaunches: r.dev_launches,
+      called: r.called === 1,
+    })),
+  };
 }
 
 /** Number of launches recorded for a dev wallet. */
