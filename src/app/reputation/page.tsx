@@ -312,7 +312,7 @@ export default function ReputationPage() {
               return (
                 <div
                   key={l.signature}
-                  className="grid grid-cols-[auto,1fr,auto,auto,auto] gap-4 px-4 py-3 items-center hover:bg-panel/50 transition-colors border-b border-edge/50"
+                  className="grid grid-cols-[auto,1fr,auto,auto,auto] gap-4 px-4 py-3 items-center hover:bg-raise transition-colors border-b border-edge/50"
                 >
                   {/* Coin */}
                   <div className="flex items-center gap-3">

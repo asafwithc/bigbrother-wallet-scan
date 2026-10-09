@@ -1,6 +1,6 @@
 import { getDb } from "@/lib/db";
 import { ensureCoinsTable } from "@/lib/market";
-import { TryCard } from "./try-card";
+import { Decode, Eyebrow } from "@/components/decode";
 
 // read .env on every request, so changing the handle needs no rebuild
 export const dynamic = "force-dynamic";
@@ -32,12 +32,12 @@ export default function XCommands() {
   const commands = [
     {
       args: "rep <contract address>",
-      text: "Replies with the coin's card: who the dev is, their rank and score, how many coins they have launched and migrated, and their best launch.",
+      text: "Drop a contract address and get the coin's card back: who the dev is, their rank and score, how many coins they have launched and migrated, and their best one.",
       example: `${at} rep ${mint}`,
     },
     {
       args: "rep",
-      text: "Reply to a shill, a call or any post with a coin in it and just write rep: the bot checks the coin from that post and answers right there in the thread.",
+      text: "See a shill, a call or any post with a coin in it? Reply with just rep. The bot reads the coin from that post and answers right there in the thread.",
       example: `${at} rep (as a reply under any post that has a contract address or a coin link)`,
     },
     {
@@ -51,16 +51,20 @@ export default function XCommands() {
     <div>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-[280px] flex-1">
-          <h1 className="mb-3.5 mt-3.5 text-[40px] font-bold tracking-tight">X commands</h1>
+          <Eyebrow>x bot</Eyebrow>
+          <h1 className="mb-3.5 mt-2 text-[40px] font-bold tracking-tight">
+            <Decode text="X commands" />
+          </h1>
           <p className="max-w-[660px] text-[17px] leading-normal text-zinc-400">
-            Tag {at} on X with a coin and get its card back in the thread: who launched it, how
-            they rank, and what their best coin did.
+            Someone shilling a coin in your feed? Tag {at} under the post and get the dev&apos;s
+            record back in the thread: who launched it, how they rank, and what their best coin
+            did.
           </p>
         </div>
         <div className="mt-3.5 flex items-center gap-2.5 rounded-[12px] border border-edge bg-panel px-4 py-3 text-sm text-zinc-300">
           <i
             className="h-2.5 w-2.5 rounded-full"
-            style={{ background: handle && live ? "#34d399" : "#52525b" }}
+            style={{ background: handle && live ? "#34d399" : "#3d6151" }}
           />
           {!handle
             ? "X handle not set: add X_HANDLE to .env"
@@ -74,20 +78,12 @@ export default function XCommands() {
         {commands.map((c, i) => (
           <div key={c.args} className={`px-6 py-6 ${i > 0 ? "border-t border-edge" : ""}`}>
             <div className="mono text-[17px]">
-              <span style={{ color: "#5b9bff" }}>{at}</span> {c.args}
+              <span className="text-matrix">{at}</span> {c.args}
             </div>
             <p className="mt-2.5 max-w-[920px] text-[15px] leading-relaxed text-zinc-300">{c.text}</p>
             <div className="mono mt-2 break-all text-[13px] text-zinc-500">e.g. {c.example}</div>
           </div>
         ))}
-      </section>
-
-      <section className="mt-7 rounded-[14px] border border-edge bg-panel p-6">
-        <h2 className="text-[17px] font-semibold">Try it here</h2>
-        <p className="mt-1.5 text-[13px] text-zinc-400">
-          Paste a contract address or a link to see that coin&apos;s card.
-        </p>
-        <TryCard />
       </section>
 
       <footer className="mt-16 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-edge pt-7 text-[13px] text-zinc-500">

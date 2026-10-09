@@ -2,11 +2,12 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { Header } from "@/components/header";
 import { Main } from "@/components/main";
+import { MatrixRain } from "@/components/matrix-rain";
 
 export const metadata: Metadata = {
-  title: "BigBrother — Who launched it?",
+  title: "BigBrother — Check the dev before you ape",
   description:
-    "Every new coin on pump.fun, tagged by the dev's track record.",
+    "See who is behind a pump.fun coin before you buy. Every dev we track gets a rank from their record: the ones who ship, and the ones who farm you.",
 };
 
 export default function RootLayout({
@@ -17,6 +18,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
+        <MatrixRain />
         <Header />
         <Main>{children}</Main>
       </body>

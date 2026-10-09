@@ -4,10 +4,106 @@
 
 :root {
   color-scheme: dark;
+  --matrix: 45 255 143;
+}
+
+html {
+  background: #030806;
+  scrollbar-color: #1c3b2b #030806;
+  scrollbar-width: thin;
 }
 
 body {
-  @apply bg-bg text-slate-200 antialiased;
+  @apply text-zinc-100 antialiased;
+  /* transparent, so the rain canvas and the glow behind it show through */
+  background: transparent;
+  min-height: 100vh;
+}
+
+/* soft phosphor glow from the top, a fainter one from the bottom right */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    /* fades the rain out toward the bottom (cheaper than masking the canvas) */
+    linear-gradient(to bottom, transparent 45%, #030806 100%),
+    radial-gradient(1200px 520px at 50% -140px, rgb(var(--matrix) / 0.11), transparent 70%),
+    radial-gradient(900px 620px at 100% 100%, rgb(var(--matrix) / 0.04), transparent 70%);
+}
+
+/* barely-there scanlines over everything */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  background: repeating-linear-gradient(to bottom, rgb(0 0 0 / 0.16) 0 1px, transparent 1px 3px);
+  opacity: 0.3;
+}
+
+::selection {
+  background: rgb(var(--matrix) / 0.28);
+  color: #f0fff6;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #1c3b2b;
+  border-radius: 8px;
+  border: 2px solid #030806;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #2a5a41;
+}
+
+:focus-visible {
+  outline: 1px solid rgb(var(--matrix) / 0.7);
+  outline-offset: 2px;
+}
+
+input,
+textarea {
+  caret-color: rgb(var(--matrix));
+}
+
+/* page titles read like terminal output */
+h1 {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: -0.035em;
+  text-shadow: 0 0 30px rgb(var(--matrix) / 0.3);
+  /* no single word left alone on the last line */
+  text-wrap: balance;
+}
+
+/* panels: slightly see-through with a hairline of light on top. No backdrop
+   blur: blurring the moving rain behind every panel on every frame is the
+   single most expensive thing a page like this can do. */
+.bg-panel {
+  box-shadow:
+    inset 0 1px 0 rgb(var(--matrix) / 0.07),
+    0 24px 60px -36px rgb(0 0 0 / 0.9);
+}
+
+/* the light pills and primary buttons glow */
+.bg-zinc-100,
+.bg-zinc-200,
+.bg-white {
+  box-shadow: 0 0 22px -4px rgb(var(--matrix) / 0.55);
+}
+
+/* live dots */
+.bg-emerald-500 {
+  box-shadow: 0 0 10px rgb(var(--matrix) / 0.85);
 }
 
 .panel {
@@ -16,4 +112,18 @@ body {
 
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* blinking terminal cursor after an element */
+.cursor::after {
+  content: "_";
+  margin-left: 0.08em;
+  color: rgb(var(--matrix));
+  animation: blink 1.1s steps(1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cursor::after {
+    animation: none;
+  }
 }

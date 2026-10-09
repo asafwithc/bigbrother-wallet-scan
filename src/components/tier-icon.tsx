@@ -33,7 +33,7 @@ export function TierIcon({ tier, size = 16 }: { tier: Tier; size?: number | stri
       viewBox="0 0 16 16"
       aria-hidden="true"
       className="shrink-0"
-      style={{ color: "#0b0b0c" }}
+      style={{ color: "#030806" }}
     >
       <circle cx="8" cy="8" r="8" fill={TIER_STYLE[tier].color} />
       <g fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">

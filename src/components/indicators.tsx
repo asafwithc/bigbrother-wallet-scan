@@ -53,7 +53,7 @@ export function ScoreGauge({ score, verdict }: { score: number; verdict: string 
   return (
     <div className="relative h-36 w-36 shrink-0">
       <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90">
-        <circle cx="60" cy="60" r={r} fill="none" stroke="#1d2735" strokeWidth="10" />
+        <circle cx="60" cy="60" r={r} fill="none" stroke="#12291d" strokeWidth="10" />
         <circle
           cx="60"
           cy="60"

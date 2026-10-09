@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { TIER_STYLE, tierOf, type Tier } from "@/lib/tiers";
 import { TierIcon } from "@/components/tier-icon";
+import { Decode, Eyebrow } from "@/components/decode";
+import { usePoll } from "@/lib/use-poll";
 
 interface DevRow {
   dev: string;
@@ -94,26 +96,21 @@ export default function DevBoard() {
   const [total, setTotal] = useState(0);
   const [pageSize, setPageSize] = useState(50);
 
-  useEffect(() => {
-    let live = true;
-    const load = () =>
+  usePoll(
+    (alive) =>
       fetch(`/api/devs?tier=${tab}&window=${win}&sort=${sort}&page=${page}`)
         .then((r) => r.json())
         .then((d) => {
-          if (!live) return;
+          if (!alive()) return;
           setDevs(d.devs ?? []);
           setCounts(d.counts ?? {});
           setTotal(d.total ?? 0);
           setPageSize(d.pageSize ?? 50);
         })
-        .catch(() => {});
-    load();
-    const t = setInterval(load, 20_000);
-    return () => {
-      live = false;
-      clearInterval(t);
-    };
-  }, [tab, win, sort, page]);
+        .catch(() => {}),
+    20_000,
+    [tab, win, sort, page]
+  );
 
   const pages = Math.max(1, Math.ceil(total / pageSize));
   const winLabel = WINDOWS.find((w) => w.id === win)?.label ?? "";
@@ -127,10 +124,14 @@ export default function DevBoard() {
     <div>
       <div className="flex flex-wrap items-start justify-between gap-6">
         <div className="min-w-[320px] flex-1">
-          <h1 className="mb-3.5 mt-3.5 text-[40px] font-bold tracking-tight">Dev board</h1>
+          <Eyebrow>dev ledger</Eyebrow>
+          <h1 className="mb-3.5 mt-2 text-[40px] font-bold tracking-tight">
+            <Decode text="Dev board" />
+          </h1>
           <p className="max-w-[660px] text-[17px] leading-normal text-zinc-400">
-            Every dev who launched in the window, ranked by their track record: best coin, how many
-            coins migrated, and whether the last one did.
+            The wallets behind the launches, ranked by what they actually did. Devs whose coins
+            went somewhere sit at the top. The ones who keep printing coins that go nowhere get
+            their own tab: Farmer.
           </p>
         </div>
         <div className="grid w-full max-w-[680px] grid-cols-2 overflow-hidden rounded-[14px] border border-edge bg-panel sm:grid-cols-4">
@@ -161,7 +162,7 @@ export default function DevBoard() {
               className={`flex items-center gap-2 rounded-[9px] border px-3.5 py-2.5 ${
                 t.id === tab
                   ? "border-zinc-100 bg-zinc-100 font-medium text-bg"
-                  : "border-[#26262a] text-zinc-300 hover:border-zinc-500"
+                  : "border-line text-zinc-300 hover:border-zinc-500"
               }`}
             >
               {t.tier && <TierIcon tier={t.tier} />}
@@ -179,7 +180,7 @@ export default function DevBoard() {
                 setSort(e.target.value);
                 setPage(1);
               }}
-              className="h-10 rounded-lg border border-[#26262a] bg-bg px-3 text-zinc-100"
+              className="h-10 rounded-lg border border-line bg-bg px-3 text-zinc-100"
             >
               <option value="score">Score</option>
               <option value="launches">Launches</option>
@@ -191,7 +192,7 @@ export default function DevBoard() {
               <button
                 key={w.id}
                 onClick={pick(() => setWin(w.id))}
-                className={`rounded-lg px-4 py-2 ${w.id === win ? "bg-[#1b1b1e] text-white" : "text-zinc-400"}`}
+                className={`rounded-lg px-4 py-2 ${w.id === win ? "bg-chip text-white" : "text-zinc-400"}`}
               >
                 {w.label}
               </button>
@@ -263,7 +264,7 @@ export default function DevBoard() {
                   </div>
                   <div className="text-right">
                     <div className="mono font-semibold">{fmt(d.launches)}</div>
-                    <div className="mono mt-1 text-xs" style={{ color: d.migratedCount > 0 ? "#34d399" : "#71717a" }}>
+                    <div className="mono mt-1 text-xs" style={{ color: d.migratedCount > 0 ? "#34d399" : "#5a8470" }}>
                       {fmt(d.migratedCount)} migrated
                     </div>
                   </div>
@@ -273,7 +274,7 @@ export default function DevBoard() {
                   </div>
                   <div>
                     <div className="mono text-right font-semibold">{d.score}</div>
-                    <div className="mt-1.5 h-[3px] rounded bg-[#26262a]">
+                    <div className="mt-1.5 h-[3px] rounded bg-chip">
                       <div className="h-full rounded" style={{ width: `${d.score}%`, background: t.color }} />
                     </div>
                   </div>
@@ -293,7 +294,7 @@ export default function DevBoard() {
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page === 1}
-              className="rounded-lg border border-[#26262a] px-3 py-2 hover:border-zinc-500 disabled:opacity-40"
+              className="rounded-lg border border-line px-3 py-2 hover:border-zinc-500 disabled:opacity-40"
             >
               ← Prev
             </button>
@@ -303,7 +304,7 @@ export default function DevBoard() {
             <button
               onClick={() => setPage((p) => Math.min(pages, p + 1))}
               disabled={page >= pages}
-              className="rounded-lg border border-[#26262a] px-3 py-2 hover:border-zinc-500 disabled:opacity-40"
+              className="rounded-lg border border-line px-3 py-2 hover:border-zinc-500 disabled:opacity-40"
             >
               Next →
             </button>

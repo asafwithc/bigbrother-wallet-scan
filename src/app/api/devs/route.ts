@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { tierSql } from "@/lib/tiers";
 import { ensureCoinsTable, refreshCoins } from "@/lib/market";
+import { cached } from "@/lib/cache";
 
 export const dynamic = "force-dynamic";
 
@@ -42,9 +43,18 @@ function summarize(coins: DevCoin[]) {
 export async function GET(req: Request) {
   const q = new URL(req.url).searchParams;
   const tier = TIERS[q.get("tier") ?? "top"] ? (q.get("tier") ?? "top") : "top";
-  const sort = SORTS[q.get("sort") ?? "score"] ?? SORTS.score;
-  const since = Math.floor(Date.now() / 1000) - (WINDOWS[q.get("window") ?? "7d"] ?? WINDOWS["7d"]);
+  const sortKey = SORTS[q.get("sort") ?? "score"] ? (q.get("sort") ?? "score") : "score";
+  const win = WINDOWS[q.get("window") ?? "7d"] ? (q.get("window") ?? "7d") : "7d";
   const page = Math.max(1, Number(q.get("page")) || 1);
+  // the Dev board and the Terminal both poll this; identical requests share one result for 8s
+  return NextResponse.json(
+    await cached(`devs|${tier}|${sortKey}|${win}|${page}`, 8_000, () => build(tier, sortKey, win, page))
+  );
+}
+
+async function build(tier: string, sortKey: string, win: string, page: number) {
+  const sort = SORTS[sortKey];
+  const since = Math.floor(Date.now() / 1000) - WINDOWS[win];
   ensureCoinsTable();
   const db = getDb();
 
@@ -62,10 +72,13 @@ export async function GET(req: Request) {
       GROUP BY l.dev HAVING MAX(l.block_time) >= ?
     )`;
 
-  const counts: Record<string, number> = {};
-  for (const [k, cond] of Object.entries(TIERS)) {
-    counts[k] = (db.prepare(`${base} SELECT COUNT(*) AS n FROM d WHERE ${cond}`).get(since) as { n: number }).n;
-  }
+  // all six tier counts in one pass over the devs, not one pass each
+  const tierKeys = Object.keys(TIERS);
+  const counts = db
+    .prepare(
+      `${base} SELECT ${tierKeys.map((k) => `COALESCE(SUM(CASE WHEN ${TIERS[k]} THEN 1 ELSE 0 END), 0) AS "${k}"`).join(", ")} FROM d`
+    )
+    .get(since) as Record<string, number>;
 
   const devsSql = `${base} SELECT * FROM d WHERE ${TIERS[tier]} ORDER BY ${sort} LIMIT ? OFFSET ?`;
   const args = [since, PAGE_SIZE, (page - 1) * PAGE_SIZE];
@@ -93,7 +106,7 @@ export async function GET(req: Request) {
      FROM launches l LEFT JOIN coins c ON c.mint = l.mint
      WHERE l.dev = ? GROUP BY l.mint ORDER BY MAX(l.block_time) DESC LIMIT ?`
   );
-  return NextResponse.json({
+  return {
     counts,
     total: counts[tier],
     page,
@@ -113,5 +126,5 @@ export async function GET(req: Request) {
         best: s.best,
       };
     }),
-  });
+  };
 }

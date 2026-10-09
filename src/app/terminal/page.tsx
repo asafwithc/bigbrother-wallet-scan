@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { TIER_STYLE, tierOf } from "@/lib/tiers";
+import { usePoll } from "@/lib/use-poll";
 
 interface Coin {
   mint: string;
@@ -86,7 +87,7 @@ function Avatar({ mint, symbol }: { mint: string; symbol: string }) {
     : null;
   if (!src || bad)
     return (
-      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] bg-[#26262a] font-bold text-zinc-300">
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] bg-chip font-bold text-zinc-300">
         {(symbol || "?")[0].toUpperCase()}
       </div>
     );
@@ -97,36 +98,16 @@ function Avatar({ mint, symbol }: { mint: string; symbol: string }) {
       alt=""
       loading="lazy"
       onError={() => setBad(true)}
-      className="h-11 w-11 shrink-0 rounded-[10px] bg-[#26262a] object-cover"
+      className="h-11 w-11 shrink-0 rounded-[10px] bg-chip object-cover"
     />
   );
 }
 
-/** Holder stats come from Solana on demand; only rows near the top ask for them. */
-function useHolders(coin: Coin, enabled: boolean): Holders {
-  const [h, setH] = useState<Holders>({ top10: coin.top10, devHold: coin.devHold });
-  const asked = useRef(false);
-  useEffect(() => {
-    if (!enabled || asked.current || h.top10 !== null || h.devHold !== null) return;
-    asked.current = true;
-    fetch(`/api/coin-stats?mint=${coin.mint}&dev=${coin.dev}`)
-      .then((r) => r.json())
-      .then((d) => setH({ top10: d.top10 ?? null, devHold: d.devHold ?? null }))
-      .catch(() => {});
-  }, [enabled, coin.mint, coin.dev, h.top10, h.devHold]);
-  return h;
-}
-
-function CoinRow({
-  c,
-  loadHolders,
-  pumpLink,
-}: {
-  c: Coin;
-  loadHolders: boolean;
-  pumpLink?: boolean;
-}) {
-  const h = useHolders(c, loadHolders);
+// Holder shares (T10, DH) come with each row from the market scanner. Rows used
+// to ask Solana for them one by one, which competed with the launch monitor
+// for the same rate-limited public node.
+function CoinRow({ c, pumpLink }: { c: Coin; pumpLink?: boolean }) {
+  const h: Holders = { top10: c.top10, devHold: c.devHold };
   const name = c.name ?? c.symbol ?? "unnamed";
   const tier = tierOf(c.devVerdict, c.devScore);
   const style = TIER_STYLE[tier];
@@ -192,7 +173,7 @@ function CoinRow({
             href={`https://pump.fun/coin/${c.mint}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-2 inline-block rounded-lg border border-[#26262a] px-2.5 py-1 text-xs text-zinc-300 hover:border-zinc-500"
+            className="mt-2 inline-block rounded-lg border border-line px-2.5 py-1 text-xs text-zinc-300 hover:border-zinc-500"
           >
             Open on pump.fun ↗
           </a>
@@ -234,13 +215,11 @@ function CoinList({
   coins,
   hide,
   empty,
-  holderRows = 6,
   pumpLink,
 }: {
   coins: Coin[];
   hide: boolean;
   empty: string;
-  holderRows?: number;
   pumpLink?: boolean;
 }) {
   const rows = hide
@@ -249,8 +228,8 @@ function CoinList({
   return (
     <div className="flex-1 overflow-y-auto">
       {rows.length === 0 && <div className="px-4 py-10 text-center text-sm text-zinc-500">{empty}</div>}
-      {rows.map((c, i) => (
-        <CoinRow key={c.mint} c={c} loadHolders={i < holderRows} pumpLink={pumpLink} />
+      {rows.map((c) => (
+        <CoinRow key={c.mint} c={c} pumpLink={pumpLink} />
       ))}
     </div>
   );
@@ -262,7 +241,7 @@ function HideToggle({ on, set }: { on: boolean; set: (v: boolean) => void }) {
       <button
         onClick={() => set(!on)}
         className={`rounded-lg border px-3 py-1.5 text-[13px] ${
-          on ? "border-zinc-100 bg-zinc-100 text-bg" : "border-[#26262a] text-zinc-300 hover:border-zinc-500"
+          on ? "border-zinc-100 bg-zinc-100 text-bg" : "border-line text-zinc-300 hover:border-zinc-500"
         }`}
       >
         Hide copycats &amp; farmers
@@ -288,8 +267,8 @@ export default function Terminal() {
   const [devs, setDevs] = useState<DevRow[]>([]);
   const [devCounts, setDevCounts] = useState<Record<string, number>>({});
 
-  useEffect(() => {
-    const load = () =>
+  usePoll(
+    () =>
       fetch("/api/terminal")
         .then((r) => r.json())
         .then((d) => {
@@ -301,30 +280,24 @@ export default function Terminal() {
             callouts: d.callouts ?? [],
           });
         })
-        .catch(() => {});
-    load();
-    const t = setInterval(load, 6_000);
-    return () => clearInterval(t);
-  }, []);
+        .catch(() => {}),
+    6_000,
+    []
+  );
 
-  useEffect(() => {
-    let live = true;
-    const load = () =>
+  usePoll(
+    (alive) =>
       fetch(`/api/devs?tier=${devTab}&window=${devWin}&sort=score`)
         .then((r) => r.json())
         .then((d) => {
-          if (!live) return;
+          if (!alive()) return;
           setDevs(d.devs ?? []);
           setDevCounts(d.counts ?? {});
         })
-        .catch(() => {});
-    load();
-    const t = setInterval(load, 15_000);
-    return () => {
-      live = false;
-      clearInterval(t);
-    };
-  }, [devTab, devWin]);
+        .catch(() => {}),
+    15_000,
+    [devTab, devWin]
+  );
 
   const visible = COLUMNS.filter((c) => shown[c.id]).length;
 
@@ -354,7 +327,7 @@ export default function Terminal() {
               className={`rounded-[9px] border px-3.5 py-2 ${
                 shown[c.id]
                   ? "border-zinc-100 bg-zinc-100 font-medium text-bg"
-                  : "border-[#26262a] text-zinc-400 hover:border-zinc-500"
+                  : "border-line text-zinc-400 hover:border-zinc-500"
               }`}
             >
               {c.label}
@@ -380,7 +353,7 @@ export default function Terminal() {
             count={stats?.totalLaunches}
           >
             <HideToggle on={hideNew} set={setHideNew} />
-            <CoinList coins={cols.new ?? []} hide={hideNew} empty="Waiting for the next launch…" holderRows={2} />
+            <CoinList coins={cols.new ?? []} hide={hideNew} empty="Waiting for the next launch…" />
           </Panel>
         )}
         {shown.top && (
@@ -411,7 +384,6 @@ export default function Terminal() {
               coins={cols.callouts ?? []}
               hide={false}
               empty="No callouts yet."
-              holderRows={2}
               pumpLink
             />
           </Panel>
@@ -425,7 +397,7 @@ export default function Terminal() {
                     key={t.id}
                     onClick={() => setDevTab(t.id)}
                     className={`rounded-lg px-2.5 py-1.5 ${
-                      t.id === devTab ? "bg-[#1b1b1e] text-white" : "text-zinc-400"
+                      t.id === devTab ? "bg-chip text-white" : "text-zinc-400"
                     }`}
                   >
                     {t.label}{" "}
@@ -438,7 +410,7 @@ export default function Terminal() {
                 <select
                   value={devWin}
                   onChange={(e) => setDevWin(e.target.value)}
-                  className="h-9 rounded-lg border border-[#26262a] bg-bg px-2.5 text-sm text-zinc-100"
+                  className="h-9 rounded-lg border border-line bg-bg px-2.5 text-sm text-zinc-100"
                 >
                   <option value="24h">24h</option>
                   <option value="7d">7 days</option>
@@ -481,7 +453,7 @@ export default function Terminal() {
                             <span style={{ color: "#34d399" }}> · {d.migratedCount} migrated</span>
                           )}
                         </span>
-                        <span className="h-[3px] w-14 shrink-0 rounded bg-[#26262a]">
+                        <span className="h-[3px] w-14 shrink-0 rounded bg-chip">
                           <span
                             className="block h-full rounded"
                             style={{ width: `${d.score}%`, background: t.color }}

@@ -1,8 +1,10 @@
 import { getDb } from "@/lib/db";
 import { ensureCoinsTable } from "@/lib/market";
 import { getLaunchTotals24h } from "@/lib/launchStats";
+import { cached } from "@/lib/cache";
 import { TIER_STYLE, tierSql, type Tier } from "@/lib/tiers";
 import { TierIcon } from "@/components/tier-icon";
+import { Decode } from "@/components/decode";
 
 // live numbers are read on every request
 export const dynamic = "force-dynamic";
@@ -28,12 +30,12 @@ const SECTIONS = [
 ];
 
 const STEPS = [
-  { n: "01", title: "A dev launches", text: "A new coin appears on pump.fun. We watch pump.fun's program on Solana and pick the launch up from the chain." },
-  { n: "02", title: "We read the wallet", text: "The wallet's earlier coins: how many it launched, how many migrated, and how each one is doing now." },
-  { n: "03", title: "The dev gets a score", text: "A reputation from 1 to 99. It goes up for coins that took off and down for dead coins and launch spam." },
-  { n: "04", title: "The score becomes a rank", text: "Crazy, Proven, Good, Unknown or Farmer. One glance tells you who you are dealing with." },
-  { n: "05", title: "It shows next to the coin", text: "On Live, in the Terminal, on the Dev board and on every coin card, free for everyone." },
-  { n: "∞", title: "Ranks keep moving", text: "Every new launch from a dev triggers a fresh check, so a rank follows what the dev does next." },
+  { n: "01", title: "A dev launches", text: "A new coin lands on pump.fun. We are watching the chain, so we see it when it happens." },
+  { n: "02", title: "We pull their record", text: "The wallet's earlier coins: how many it launched, how many migrated, and how many are sitting dead." },
+  { n: "03", title: "We score the dev", text: "From 1 to 99. Coins that took off add points. Dead coins, launch spam and three coins in an hour take them away." },
+  { n: "04", title: "The score becomes a rank", text: "Crazy, Proven, Good, Unknown or Farmer. No essay to read, just one word." },
+  { n: "05", title: "You see it before you buy", text: "The rank sits next to the coin on Live, in the Terminal and on the Dev board. Free, no account." },
+  { n: "∞", title: "The record follows the wallet", text: "Every new launch is checked again. A wallet that farmed last week still wears it this week." },
 ];
 
 const RANKS: Record<Tier, { short: string; rule: string }> = {
@@ -81,6 +83,8 @@ const SOURCES = [
 ];
 
 const FAQ = [
+  { q: "Will this stop me getting farmed?", a: "No tool can promise that. It shows you who you are dealing with before you buy, which is more than the chart will tell you. What you do with it is up to you." },
+  { q: "Does Farmer mean scammer?", a: "No. It means the wallet launched two or more coins and none of them went anywhere. That is a track record, not proof of what the dev intended." },
   { q: "Is this financial advice?", a: "No. A rank describes what a wallet did before. It cannot tell you what its next coin will do." },
   { q: "Does a good rank mean the coin is safe?", a: "No. A dev with a strong record can still launch a coin that goes to zero, and can still sell. Treat the rank as one input, not a green light." },
   { q: "Why is a dev Unknown?", a: "We have only one launch on record for that wallet, so there is no history to judge. Most wallets on pump.fun are in this group." },
@@ -167,7 +171,7 @@ function Tag({ children, tone }: { children: React.ReactNode; tone: "good" | "mu
       style={
         tone === "good"
           ? { background: "#10261e", color: "#34d399" }
-          : { background: "#1b1b1e", color: "#a1a1aa" }
+          : { background: "#0f2118", color: "#a1a1aa" }
       }
     >
       {children}
@@ -205,8 +209,11 @@ function Badge({ tier }: { tier: Tier }) {
 }
 
 export default async function HowItWorks() {
-  const totals = await getLaunchTotals24h();
-  const { devCounts, dayCounts, dayTotal, example } = loadData();
+  // ten queries and a Jupiter call: shared between visitors for 30 seconds
+  const { totals, devCounts, dayCounts, dayTotal, example } = await cached("how", 30_000, async () => ({
+    totals: await getLaunchTotals24h(),
+    ...loadData(),
+  }));
 
   const perDay = totals ? totals.pump + totals.stonk : null;
   const perMin = (n: number | null) => (n === null ? "—" : (n / 1440).toFixed(1));
@@ -232,7 +239,7 @@ export default async function HowItWorks() {
             <li key={s.id}>
               <a
                 href={`#${s.id}`}
-                className="block rounded-[0.4em] px-[0.95em] py-[0.55em] text-[0.95em] text-zinc-400 hover:bg-[#151517] hover:text-white"
+                className="block rounded-[0.4em] px-[0.95em] py-[0.55em] text-[0.95em] text-zinc-400 hover:bg-raise hover:text-white"
               >
                 {s.label}
               </a>
@@ -242,17 +249,21 @@ export default async function HowItWorks() {
       </nav>
 
       <div className="min-w-0">
-        <div className="text-[0.9em] font-semibold uppercase tracking-[0.12em] text-zinc-500">How it works</div>
+        <div className="mono text-[0.8em] uppercase tracking-[0.22em] text-matrix/80"><span className="text-matrix/50">{"// "}</span>how it works</div>
         <h1 className="mt-[0.3em] text-[2.3em] font-bold leading-[1.1] tracking-tight sm:text-[3.25em]">
-          Every coin has a dev.
-          <span className="block text-zinc-500">We show you their record.</span>
+          <Decode text="Devs farm. You pay." />
+          <Decode text="We keep the receipts." className="block text-zinc-500" />
         </h1>
         <div className="mt-[1.5em] max-w-[40em] space-y-[0.7em] text-[1.15em] leading-[1.55] text-zinc-300">
-          <p>A new coin tells you almost nothing. The wallet that launched it tells you a lot.</p>
           <p>
-            BigBrother checks the dev behind the pump.fun launches it sees and gives them one of five
-            ranks: Crazy Dev, Proven, Good, Unknown or Farmer.
+            You know how it goes. A coin launches, the chart runs for ten minutes, and the wallet
+            behind it is already on to the next one.
           </p>
+          <p>
+            BigBrother watches pump.fun launches as they land, looks up the wallet behind each one,
+            and ranks the dev on what they did before: Crazy Dev, Proven, Good, Unknown or Farmer.
+          </p>
+          <p>One word, next to the coin, before you buy.</p>
         </div>
 
         <H2 id="loop">The loop</H2>
@@ -264,16 +275,16 @@ export default async function HowItWorks() {
                 key={s.n}
                 className={`rounded-[0.95em] border p-[1.5em] ${last ? "border-zinc-200 bg-zinc-200 text-bg" : "border-edge bg-panel"}`}
               >
-                <div className="mono text-[0.85em] text-zinc-500">{s.n}</div>
+                <div className={`mono text-[0.85em] ${last ? "text-zinc-600" : "text-matrix/70"}`}>{s.n}</div>
                 <div className="mt-[1.3em] text-[1.05em] font-semibold">{s.title}</div>
-                <p className={`mt-[0.6em] leading-[1.5] ${last ? "text-zinc-500" : "text-zinc-400"}`}>{s.text}</p>
+                <p className={`mt-[0.6em] leading-[1.5] ${last ? "text-zinc-700" : "text-zinc-400"}`}>{s.text}</p>
               </div>
             );
           })}
         </div>
 
         <H2 id="live">Live numbers</H2>
-        <Lead>Launchpad-wide counts for the last 24 hours, from Jupiter.</Lead>
+        <Lead>This is how fast coins get printed. Launchpad-wide counts for the last 24 hours, from Jupiter.</Lead>
         <div className="grid grid-cols-2 gap-[0.95em] xl:grid-cols-3">
           {stats.map((s) => (
             <div key={s.label} className={`${PANEL} p-[1.5em]`}>
@@ -300,7 +311,7 @@ export default async function HowItWorks() {
                     <TierIcon tier={t} size="1.1em" />
                     {NAME[t]}
                   </span>
-                  <span className="h-[0.55em] flex-1 overflow-hidden rounded-full bg-[#1b1b1e]">
+                  <span className="h-[0.55em] flex-1 overflow-hidden rounded-full bg-chip">
                     <span className="block h-full rounded-full" style={{ width: `${pct}%`, background: TIER_STYLE[t].color }} />
                   </span>
                   <span className="mono w-[3.5em] shrink-0 text-right text-zinc-300">{pct.toFixed(pct < 10 ? 1 : 0)}%</span>
@@ -312,8 +323,8 @@ export default async function HowItWorks() {
 
         <H2 id="colours">Five ranks, five colours</H2>
         <Lead>
-          Each rank has its own colour and icon, used everywhere on the site. When you see one next to
-          a coin, you know what kind of wallet launched it.
+          Five colours, used everywhere on the site. See red next to a coin and you already know
+          what kind of wallet launched it.
         </Lead>
         <div className={`${PANEL} grid grid-cols-2 overflow-hidden sm:grid-cols-5`}>
           {TIERS.map((t, i) => (
@@ -352,8 +363,8 @@ export default async function HowItWorks() {
 
         <H2 id="score">How the score moves</H2>
         <Lead>
-          Every dev starts at 50. Coins that took off push the score up. Dead coins and launch spam
-          pull it down. The result is kept between 1 and 99.
+          Everyone starts at 50. Launch coins that go somewhere and the score climbs. Leave a trail
+          of dead coins or spam launches and it sinks. It always stays between 1 and 99.
         </Lead>
         <div className={`${PANEL} overflow-hidden`}>
           {SCORE_RULES.map((r, i) => (

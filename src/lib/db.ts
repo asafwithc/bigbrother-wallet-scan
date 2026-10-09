@@ -155,11 +155,14 @@ export function get_launches_page(opts: {
   offset: number;
   filter?: string; // "crazy" | "proven" | "good" | "unknown" | "farmer" | "called"
   launchpad?: string;
-}): { launches: (LaunchRow & { devLaunches: number; called: boolean })[]; total: number } {
+}): {
+  launches: (LaunchRow & { devLaunches: number; called: boolean; mcap: number | null; ath: number | null })[];
+  total: number;
+} {
   const where: string[] = [];
   const args: (string | number)[] = [];
-  // "called" = coins picked for a callout (the `callouts` table, which the caller
-  // makes sure exists). One row per coin, even if the monitor recorded it twice.
+  // "called" = coins picked for a callout. The caller makes sure the `callouts`
+  // and `coins` tables exist (ensureCalloutPicks does both). One row per coin, even if the monitor recorded it twice.
   if (opts.filter === "called")
     where.push(
       `mint IN (SELECT mint FROM callouts)
@@ -180,7 +183,9 @@ export function get_launches_page(opts: {
     .prepare(
       `SELECT signature, mint, launchpad, name, symbol, dev, block_time, dev_score, dev_verdict,
               (SELECT COUNT(*) FROM launches l2 WHERE l2.dev = launches.dev) AS dev_launches,
-              EXISTS (SELECT 1 FROM callouts k WHERE k.mint = launches.mint) AS called
+              EXISTS (SELECT 1 FROM callouts k WHERE k.mint = launches.mint) AS called,
+              (SELECT c.mcap FROM coins c WHERE c.mint = launches.mint) AS mcap,
+              (SELECT c.ath FROM coins c WHERE c.mint = launches.mint) AS ath
        FROM launches ${w} ORDER BY block_time DESC LIMIT ? OFFSET ?`
     )
     .all(...args, opts.limit, opts.offset) as {
@@ -195,6 +200,8 @@ export function get_launches_page(opts: {
     dev_verdict: string | null;
     dev_launches: number;
     called: number;
+    mcap: number | null;
+    ath: number | null;
   }[];
   return {
     total,
@@ -210,6 +217,8 @@ export function get_launches_page(opts: {
       devVerdict: r.dev_verdict,
       devLaunches: r.dev_launches,
       called: r.called === 1,
+      mcap: r.mcap,
+      ath: r.ath,
     })),
   };
 }

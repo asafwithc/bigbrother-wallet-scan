@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import type { LaunchItem } from "@/lib/types";
 import { TIER_STYLE, tierOf } from "@/lib/tiers";
+import { Decode, Eyebrow } from "@/components/decode";
+import { usePoll } from "@/lib/use-poll";
 
 interface Stats {
   totalLaunches: number;
@@ -25,11 +27,12 @@ interface Chart {
   days: ChartDay[];
   week: { pump: number; stonk: number } | null;
 }
-interface Meta {
-  mcap: number | null;
-  image: string | null;
-  ath: number | null;
-}
+type Row = LaunchItem & {
+  devLaunches?: number;
+  called?: boolean;
+  mcap?: number | null;
+  ath?: number | null;
+};
 
 const PUMP = "#1fb67a";
 const STONK = "#2f6fe4";
@@ -78,7 +81,7 @@ function Avatar({ mint, symbol, image }: { mint: string; symbol: string; image: 
   const src = image ?? (mint.endsWith("pump") ? `https://images.pump.fun/coin-image/${mint}?imageSize=128` : null);
   if (!src || bad)
     return (
-      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] bg-[#26262a] font-bold text-zinc-300">
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] bg-chip font-bold text-zinc-300">
         {(symbol || "?")[0].toUpperCase()}
       </div>
     );
@@ -89,7 +92,7 @@ function Avatar({ mint, symbol, image }: { mint: string; symbol: string; image: 
       alt=""
       loading="lazy"
       onError={() => setBad(true)}
-      className="h-11 w-11 shrink-0 rounded-[10px] bg-[#26262a] object-cover"
+      className="h-11 w-11 shrink-0 rounded-[10px] bg-chip object-cover"
     />
   );
 }
@@ -176,7 +179,7 @@ function LaunchChart({ chart }: { chart: Chart | null }) {
 
         {h && hover !== null && (
           <div
-            className="pointer-events-none absolute top-0 z-10 w-[250px] max-w-full rounded-[12px] border border-[#2e2e33] bg-[#151517] p-4 text-sm shadow-xl"
+            className="pointer-events-none absolute top-0 z-10 w-[250px] max-w-full rounded-[12px] border border-line bg-raise p-4 text-sm shadow-xl"
             style={{
               // beside the hovered bar, but never outside the chart (narrow screens)
               left:
@@ -200,7 +203,7 @@ function LaunchChart({ chart }: { chart: Chart | null }) {
               </span>
               <span className="mono font-semibold text-zinc-100">{fmt(h.stonk)}</span>
             </div>
-            <div className="mt-2.5 flex items-center justify-between gap-4 border-t border-[#2e2e33] pt-2.5">
+            <div className="mt-2.5 flex items-center justify-between gap-4 border-t border-line pt-2.5">
               <span>Total</span>
               <span className="mono font-semibold">{fmt(h.pump + h.stonk)}</span>
             </div>
@@ -230,64 +233,46 @@ function LaunchChart({ chart }: { chart: Chart | null }) {
 export default function Live() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [chart, setChart] = useState<Chart | null>(null);
-  const [launches, setLaunches] = useState<(LaunchItem & { devLaunches?: number; called?: boolean })[]>([]);
+  const [launches, setLaunches] = useState<Row[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [pageSize, setPageSize] = useState(50);
-  const [meta, setMeta] = useState<Record<string, Meta>>({});
   const [chip, setChip] = useState<Chip>("All");
   const [source, setSource] = useState<Source>("All");
   const [range, setRange] = useState<"24h" | "7d" | "30d" | "3m">("24h");
 
-  useEffect(() => {
-    const loadStats = () =>
+  usePoll(
+    () =>
       fetch("/api/stats")
         .then((r) => r.json())
         .then((d) => {
           setStats(d.stats);
           setChart(d.chart ?? { days: [], week: null });
         })
-        .catch(() => {});
-    loadStats();
-    const t = setInterval(loadStats, 30_000);
-    return () => clearInterval(t);
-  }, []);
+        .catch(() => {}),
+    30_000,
+    []
+  );
 
-  useEffect(() => {
-    const qs = new URLSearchParams({ page: String(page) });
-    if (chip !== "All") qs.set("filter", CHIP_FILTER[chip]);
-    if (source !== "All") qs.set("launchpad", source === "StonkFun" ? "stonk" : "pumpfun");
-    let live = true;
-    const load = () =>
-      fetch(`/api/feed?${qs}`)
+  // market cap and ATH arrive with each row, so there is no second request per refresh
+  usePoll(
+    (alive) => {
+      const qs = new URLSearchParams({ page: String(page) });
+      if (chip !== "All") qs.set("filter", CHIP_FILTER[chip]);
+      if (source !== "All") qs.set("launchpad", source === "StonkFun" ? "stonk" : "pumpfun");
+      return fetch(`/api/feed?${qs}`)
         .then((r) => r.json())
         .then((d) => {
-          if (!live) return;
+          if (!alive()) return;
           setLaunches(d.launches ?? []);
           setTotal(d.total ?? 0);
           setPageSize(d.pageSize ?? 50);
         })
         .catch(() => {});
-    load();
-    const t = setInterval(load, 6_000);
-    return () => {
-      live = false;
-      clearInterval(t);
-    };
-  }, [page, chip, source]);
-
-  const mintKey = launches.map((l) => l.mint).join(",");
-  useEffect(() => {
-    if (!mintKey) return;
-    const load = () =>
-      fetch(`/api/coins?mints=${mintKey}`)
-        .then((r) => r.json())
-        .then((d) => setMeta((m) => ({ ...m, ...d.coins })))
-        .catch(() => {});
-    load();
-    const t = setInterval(load, 20_000);
-    return () => clearInterval(t);
-  }, [mintKey]);
+    },
+    6_000,
+    [page, chip, source]
+  );
 
   const rows = launches;
   const pages = Math.max(1, Math.ceil(total / pageSize));
@@ -300,10 +285,14 @@ export default function Live() {
     <div>
       <div className="flex flex-wrap items-start justify-between gap-6">
         <div className="min-w-[320px] flex-1">
-          <h1 className="mb-3.5 mt-3.5 text-[40px] font-bold tracking-tight">Who launched it?</h1>
+          <Eyebrow>live feed</Eyebrow>
+          <h1 className="mb-3.5 mt-2 text-[40px] font-bold tracking-tight">
+            <Decode text="Check the dev before you ape." />
+          </h1>
           <p className="max-w-[680px] text-[17px] leading-normal text-zinc-400">
-            Every new coin on pump.fun and StonkFun, tagged by the dev&apos;s track record: past
-            launches, best ATH, and how many of their coins pulled real fees.
+            Same wallets, new ticker, same ending. BigBrother watches pump.fun launches as they
+            land and puts the dev&apos;s record next to the coin: how many they launched, how many
+            went anywhere, and how many they left for dead.
           </p>
         </div>
         <div className="grid w-full max-w-[680px] grid-cols-3 overflow-hidden rounded-[14px] border border-edge bg-panel">
@@ -355,7 +344,7 @@ export default function Live() {
                 className={`rounded-[9px] border px-4 py-2.5 ${
                   c === chip
                     ? "border-zinc-100 bg-zinc-100 text-bg"
-                    : "border-[#26262a] text-zinc-300 hover:border-zinc-500"
+                    : "border-line text-zinc-300 hover:border-zinc-500"
                 }`}
               >
                 {c}
@@ -370,7 +359,7 @@ export default function Live() {
                   setSource(s);
                   setPage(1);
                 }}
-                className={`rounded-lg px-4 py-2 ${s === source ? "bg-[#1b1b1e] text-white" : "text-zinc-400"}`}
+                className={`rounded-lg px-4 py-2 ${s === source ? "bg-chip text-white" : "text-zinc-400"}`}
               >
                 {s}
               </button>
@@ -392,7 +381,6 @@ export default function Live() {
               </div>
             )}
             {rows.map((l) => {
-              const m = meta[l.mint];
               const name = l.name ?? l.symbol ?? "unnamed";
               return (
                 <div
@@ -400,7 +388,7 @@ export default function Live() {
                   className="grid grid-cols-[2fr_3fr_1fr_1fr] items-center border-t border-edge px-[22px] py-3.5"
                 >
                   <div className="flex items-center gap-3.5">
-                    <Avatar mint={l.mint} symbol={l.symbol ?? name} image={m?.image ?? null} />
+                    <Avatar mint={l.mint} symbol={l.symbol ?? name} image={null} />
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5 text-base font-semibold">
                         <span className="truncate">{name}</span>
@@ -422,8 +410,8 @@ export default function Live() {
                   </div>
                   <DevCell l={l} count={l.devLaunches ?? 1} />
                   <div className="text-right">
-                    <div className="mono text-base font-semibold">{usd(m?.mcap)}</div>
-                    <div className="mono mt-1 text-xs text-zinc-500">ATH {usd(m?.ath)}</div>
+                    <div className="mono text-base font-semibold">{usd(l.mcap)}</div>
+                    <div className="mono mt-1 text-xs text-zinc-500">ATH {usd(l.ath)}</div>
                   </div>
                   {l.called ? (
                     <div
@@ -451,14 +439,14 @@ export default function Live() {
             <button
               onClick={() => setPage(1)}
               disabled={page === 1}
-              className="rounded-lg border border-[#26262a] px-3 py-2 hover:border-zinc-500 disabled:opacity-40"
+              className="rounded-lg border border-line px-3 py-2 hover:border-zinc-500 disabled:opacity-40"
             >
               Newest
             </button>
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page === 1}
-              className="rounded-lg border border-[#26262a] px-3 py-2 hover:border-zinc-500 disabled:opacity-40"
+              className="rounded-lg border border-line px-3 py-2 hover:border-zinc-500 disabled:opacity-40"
             >
               ← Prev
             </button>
@@ -468,7 +456,7 @@ export default function Live() {
             <button
               onClick={() => setPage((p) => Math.min(pages, p + 1))}
               disabled={page >= pages}
-              className="rounded-lg border border-[#26262a] px-3 py-2 hover:border-zinc-500 disabled:opacity-40"
+              className="rounded-lg border border-line px-3 py-2 hover:border-zinc-500 disabled:opacity-40"
             >
               Next →
             </button>

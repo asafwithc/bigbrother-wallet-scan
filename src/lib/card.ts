@@ -6,7 +6,7 @@ import { tierOf, TIER_STYLE, type Tier } from "./tiers";
 /**
  * A coin's "card": the coin, who launched it, how that dev is rated here and
  * what their best coin did. Built from Jupiter's token data plus this app's
- * own records. Used by the X commands page; an X bot can post `cardText`.
+ * own records. Served by /api/card; an X bot can post `cardText`.
  */
 
 const JUP_ASSETS_URL = "https://datapi.jup.ag/v1/assets/search";

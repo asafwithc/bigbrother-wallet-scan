@@ -3,6 +3,7 @@ import Database from "better-sqlite3";
 import path from "path";
 import { getLaunchChart } from "@/lib/launchStats";
 import { ensureCalloutPicks } from "@/lib/callouts";
+import { cached } from "@/lib/cache";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,13 @@ interface DevRanking {
   devVerdict: string | null;
 }
 
+// The numbers move slowly and every Live tab asks for them, so one
+// computation is shared for 10 seconds.
 export async function GET() {
+  return NextResponse.json(await cached("stats", 10_000, compute));
+}
+
+async function compute() {
   const db = new Database(DB_PATH);
 
   // Get total launches
@@ -132,7 +139,7 @@ export async function GET() {
 
   db.close();
 
-  return NextResponse.json({
+  return {
     stats: {
       totalLaunches: totalLaunches.count + historyTotal.all,
       uniqueDevs: uniqueDevs.count,
@@ -145,5 +152,5 @@ export async function GET() {
     launchesPerDay,
     topDevs,
     verdictStats,
-  });
+  };
 }
