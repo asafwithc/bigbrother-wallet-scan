@@ -1,5 +1,5 @@
 /**
- * Launchpad registry — BigBrother monitors bonding-curve launchpads for
+ * Launchpad registry — FadeTheDev monitors bonding-curve launchpads for
  * new token launches and tracks the dev wallet behind each one.
  *
  * pump.fun is live by default (verified program id).

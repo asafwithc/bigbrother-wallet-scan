@@ -47,4 +47,12 @@ describe("lite dev check", () => {
     expect(decide(facts({ totalCoins: 22, maxPerHour: 22 })).verdict).toBe("Likely Rugged");
     expect(decide(facts({ totalCoins: 9, prior: Array(8).fill(dead) })).verdict).toBe("Likely Rugged");
   });
+  it("credits migrations from the wallet's all-time record", () => {
+    expect(tier({ totalCoins: 2, prior: [dead], allTimeMints: 10, allTimeMigrations: 2 })).not.toBe("farmer");
+    // a rounding error on a mass launcher's record does not count
+    expect(tier({ totalCoins: 2, prior: [dead], allTimeMints: 5000, allTimeMigrations: 20 })).toBe("farmer");
+  });
+  it("a win with a rough record is still a good dev", () => {
+    expect(tier({ totalCoins: 6, prior: [{ graduated: false, dead: false, mcap: 8_000 }, dead, dead, dead, dead], maxPerHour: 3 })).toBe("good");
+  });
 });

@@ -31,6 +31,8 @@ export interface LiteFacts {
   launchesPerDay: number; // launch rate over the period we've watched this dev
   totalCoins: number; // every coin we've seen from this dev, including the newest
   maxPerHour: number; // most coins launched inside a single hour
+  allTimeMints?: number | null; // the wallet's all-time record on Jupiter, when known
+  allTimeMigrations?: number | null;
   txCount: number | null; // up to 100 recent signatures
   activeSpanDays: number | null; // time covered by those signatures
 }
@@ -43,7 +45,7 @@ const clamp = (n: number) => Math.max(1, Math.min(99, Math.round(n)));
  *
  *   start at 50
  *   + graduated coins: +18 for the first, +12 for each extra (max +45)
- *   + coins with traction (not graduated, $10K+ market cap): +10 each (max +30)
+ *   + coins with traction (not graduated, $7.5K+ market cap): +10 each (max +30)
  *   + success rate (graduated or traction): up to +8
  *   + best earlier coin's market cap: +3 ($50K) / +6 ($250K) / +10 ($1M) / +14 ($5M)
  *   - share of earlier coins that are dead: up to -15
@@ -53,14 +55,21 @@ const clamp = (n: number) => Math.max(1, Math.min(99, Math.round(n)));
  *   - burst launching (3+ coins inside one hour): -10
  *   - bot-like wallet (100+ txs in under 3 days): -4
  *
+ * A dev whose all-time record on Jupiter shows migrations (at least 5% of
+ * their launches) is credited with them even if we never recorded those coins.
+ *
  * "Unknown" is only for devs with a single launch on record. With 2+ coins a
- * dev is graded: at least one win and reputation 50+ is a good dev or better,
+ * dev is graded: at least one win and reputation 40+ is a good dev or better,
  * everyone else is a farmer (the reputation says how bad).
  */
 export function decide(f: LiteFacts): LiteResult {
   const n = f.prior.length;
-  const grad = f.prior.filter((p) => p.graduated).length;
-  const traction = f.prior.filter((p) => !p.graduated && p.mcap >= 10_000).length;
+  // Migrations Jupiter knows about count too, unless they are a rounding error
+  // on a mass launcher's record (under 5% of everything the wallet minted).
+  const known = f.allTimeMigrations ?? 0;
+  const credited = known > 0 && known / Math.max(f.allTimeMints ?? known, known) >= 0.05 ? Math.min(known, 3) : 0;
+  const grad = Math.max(f.prior.filter((p) => p.graduated).length, credited);
+  const traction = f.prior.filter((p) => !p.graduated && p.mcap >= 7_500).length;
   const wins = grad + traction;
   const dead = f.prior.filter((p) => p.dead).length;
   const best = Math.max(0, ...f.prior.map((p) => p.mcap));
@@ -71,13 +80,13 @@ export function decide(f: LiteFacts): LiteResult {
   const why: string[] = [];
   if (grad > 0) {
     rep += Math.min(45, 18 + (grad - 1) * 12);
-    why.push(`${grad} of ${n} earlier coin(s) graduated`);
+    why.push(`${grad} earlier coin(s) graduated`);
   }
   if (traction > 0) {
     rep += Math.min(30, traction * 10);
     why.push(`${traction} earlier coin(s) with traction`);
   }
-  if (wins > 0) rep += (wins / n) * 8;
+  if (wins > 0) rep += Math.min(1, wins / Math.max(n, 1)) * 8;
   if (best >= 50_000) {
     rep += best >= 5e6 ? 14 : best >= 1e6 ? 10 : best >= 250_000 ? 6 : 3;
     why.push(`best earlier coin at $${Math.round(best / 1000)}K`);
@@ -116,7 +125,7 @@ export function decide(f: LiteFacts): LiteResult {
   // from this dev. Anyone with 2+ coins gets a real grade.
   let verdict: LiteVerdict;
   if (f.totalCoins <= 1) verdict = "Unknown";
-  else if (wins >= 1 && rep >= 50) verdict = "Legit";
+  else if (wins >= 1 && rep >= 40) verdict = "Legit";
   else if ((serial && n >= 8) || (mass && f.totalCoins >= 10)) verdict = "Likely Rugged";
   else verdict = "Suspicious";
 
@@ -207,11 +216,25 @@ export async function liteAnalyzeDev(
     )
     .get(dev) as { m: number | null };
 
+  let record: { mints: number | null; migrations: number | null } | undefined;
+  try {
+    record = getDb()
+      .prepare(
+        `SELECT MAX(c.dev_mints) AS mints, MAX(c.dev_migrations) AS migrations
+         FROM launches l JOIN coins c ON c.mint = l.mint WHERE l.dev = ?`
+      )
+      .get(dev) as typeof record;
+  } catch {
+    /* coins table not created yet */
+  }
+
   return decide({
     prior: [...priorMap.values()],
     launchesPerDay,
     totalCoins: span.n,
     maxPerHour: hour.m ?? 0,
+    allTimeMints: record?.mints ?? null,
+    allTimeMigrations: record?.migrations ?? null,
     txCount,
     activeSpanDays,
   });

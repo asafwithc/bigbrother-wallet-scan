@@ -1,4 +1,4 @@
-// Find a recent pump.fun token creator to test BigBrother against.
+// Find a recent pump.fun token creator to test FadeTheDev against.
 // Usage: node scripts/find-dev.mjs
 import { Connection, PublicKey } from "@solana/web3.js";
 import { createHash } from "crypto";

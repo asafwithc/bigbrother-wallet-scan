@@ -1,4 +1,4 @@
-// Shared types for BigBrother
+// Shared types for FadeTheDev
 
 export type Verdict = "Legit" | "Suspicious" | "Likely Rugged";
 

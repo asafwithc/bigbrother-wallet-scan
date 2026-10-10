@@ -1,7 +1,7 @@
 import type { Signal, TokenStatus, Verdict } from "../types";
 
 /**
- * BigBrother scoring engine.
+ * FadeTheDev scoring engine.
  *
  * Pure functions only: takes plain facts about a wallet and its launched
  * tokens, produces per-signal points and a final 0..100 risk score.

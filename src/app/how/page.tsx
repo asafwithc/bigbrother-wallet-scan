@@ -49,7 +49,7 @@ const RANKS: Record<Tier, { short: string; rule: string }> = {
   },
   good: {
     short: "At least one coin took off",
-    rule: "Reputation 50 to 56. At least one coin that took off, among others that did not.",
+    rule: "Reputation 40 to 56. At least one coin that took off, among others that did not.",
   },
   unknown: {
     short: "Only one launch on record",
@@ -57,13 +57,13 @@ const RANKS: Record<Tier, { short: string; rule: string }> = {
   },
   farmer: {
     short: "2+ launches, nothing took off",
-    rule: "Two or more launches and nothing took off, or a reputation under 50. The score says how bad: it drops for mass launching, bursts of coins and dead coins.",
+    rule: "Two or more launches and nothing took off, or a reputation under 40. The score says how bad: it drops for mass launching, bursts of coins and dead coins.",
   },
 };
 
 const SCORE_RULES: { up: boolean; what: string; points: string }[] = [
   { up: true, what: "Each earlier coin that migrated", points: "+18 for the first, +12 for each after, up to +45" },
-  { up: true, what: "Each earlier coin at $10K+ that has not migrated", points: "+10 each, up to +30" },
+  { up: true, what: "Each earlier coin at $7.5K+ that has not migrated", points: "+10 each, up to +30" },
   { up: true, what: "Share of earlier coins that took off", points: "up to +8" },
   { up: true, what: "Best earlier coin's market cap", points: "+3 at $50K, +6 at $250K, +10 at $1M, +14 at $5M" },
   { up: false, what: "Share of earlier coins that are dead", points: "up to −15" },
@@ -260,7 +260,7 @@ export default async function HowItWorks() {
             behind it is already on to the next one.
           </p>
           <p>
-            BigBrother watches pump.fun launches as they land, looks up the wallet behind each one,
+            FadeTheDev watches pump.fun launches as they land, looks up the wallet behind each one,
             and ranks the dev on what they did before: Crazy Dev, Proven, Good, Unknown or Farmer.
           </p>
           <p>One word, next to the coin, before you buy.</p>
@@ -355,7 +355,7 @@ export default async function HowItWorks() {
           ))}
         </div>
         <ul className={`mt-[1.2em] max-w-[52em] list-disc space-y-[0.55em] pl-[1.3em] marker:text-zinc-600 ${BODY}`}>
-          <li>A coin &quot;took off&quot; if it migrated off the bonding curve or reached a $10K market cap.</li>
+          <li>A coin &quot;took off&quot; if it migrated off the bonding curve or reached a $7.5K market cap. Migrations on a dev&apos;s all-time record count too.</li>
           <li>A coin is &quot;dead&quot; if it never migrated and sits under $3K.</li>
           <li>Wins and dead coins are only counted on coins older than 30 minutes. A coin that just launched has not had time to prove anything.</li>
           <li>Unknown means one launch on record. From the second launch on, a dev always gets a real rank.</li>
@@ -407,7 +407,7 @@ export default async function HowItWorks() {
                       <td className="px-[1.5em] py-[0.9em] text-right">
                         {c.migrated ? (
                           <Tag tone="good">migrated</Tag>
-                        ) : (c.mcap ?? 0) >= 10_000 ? (
+                        ) : (c.mcap ?? 0) >= 7_500 ? (
                           <Tag tone="good">took off</Tag>
                         ) : (c.mcap ?? 0) < 3_000 ? (
                           <Tag tone="muted">dead</Tag>
@@ -477,7 +477,7 @@ export default async function HowItWorks() {
         </div>
 
         <p className="mt-[3em] text-[0.85em] text-zinc-500">
-          BigBrother ranks pump.fun devs from on-chain history. Not financial advice.
+          FadeTheDev ranks pump.fun devs from on-chain history. Not financial advice.
         </p>
       </div>
     </div>

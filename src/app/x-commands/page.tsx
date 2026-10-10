@@ -87,7 +87,7 @@ export default function XCommands() {
       </section>
 
       <footer className="mt-16 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-edge pt-7 text-[13px] text-zinc-500">
-        <span>BigBrother ranks pump.fun devs from on-chain history. Not financial advice.</span>
+        <span>FadeTheDev ranks pump.fun devs from on-chain history. Not financial advice.</span>
         {handle && (
           <>
             <span>·</span>

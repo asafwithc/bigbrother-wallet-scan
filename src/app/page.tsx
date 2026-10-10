@@ -290,9 +290,13 @@ export default function Live() {
             <Decode text="Check the dev before you ape." />
           </h1>
           <p className="max-w-[680px] text-[17px] leading-normal text-zinc-400">
-            Same wallets, new ticker, same ending. BigBrother watches pump.fun launches as they
+            Same wallets, new ticker, same ending. FadeTheDev watches pump.fun launches as they
             land and puts the dev&apos;s record next to the coin: how many they launched, how many
             went anywhere, and how many they left for dead.
+          </p>
+          <p className="mt-3 max-w-[680px] text-[15px] leading-normal text-zinc-400">
+            We don&apos;t pay for ads. Our marketing is the callouts we post on coins: a short note
+            with the dev&apos;s record, right where people are about to buy.
           </p>
         </div>
         <div className="grid w-full max-w-[680px] grid-cols-3 overflow-hidden rounded-[14px] border border-edge bg-panel">

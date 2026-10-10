@@ -1,8 +1,8 @@
 {
-  "name": "bigbrother",
+  "name": "fadethedev",
   "version": "0.1.0",
   "private": true,
-  "description": "BigBrother — Solana developer wallet rug-risk tracker",
+  "description": "FadeTheDev — Solana developer wallet rug-risk tracker",
   "scripts": {
     "dev": "node scripts/start.mjs dev",
     "build": "node scripts/start.mjs build",

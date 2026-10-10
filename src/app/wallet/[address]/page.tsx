@@ -45,7 +45,7 @@ export default function WalletPage() {
     return (
       <div className="panel text-center py-16">
         <div className="text-4xl mb-4 animate-pulse">👁️</div>
-        <p className="font-semibold">BigBrother is watching this wallet…</p>
+        <p className="font-semibold">FadeTheDev is watching this wallet…</p>
         <p className="mt-2 text-sm text-slate-500">
           Scanning on-chain history, bonding curves and DexScreener — this can
           take up to a minute on the free public RPC.
