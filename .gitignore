@@ -1,5 +1,8 @@
 node_modules/
 .next/
-bigbrother.db
 *.log
 .env*
+bigbrother.db
+bigbrother.db-shm
+bigbrother.db-wal
+snapshot.db
