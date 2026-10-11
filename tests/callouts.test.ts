@@ -33,7 +33,7 @@ beforeAll(async () => {
   launch("b1", N - 2);
   launch("now1", N); // current slot isn't finished yet
   // slot N-1 only has coins that must never be picked:
-  launch("old", N - 10);
+  launch("old", N - 5);
   launch("old", N - 1); // seen before this slot
   launch("mig", N - 1);
   db.prepare("INSERT INTO coins (mint, migrated) VALUES ('mig', 1)").run();
@@ -46,7 +46,7 @@ describe("callout picks", () => {
     const bySlot = new Map(p.map((r) => [r.slot, r.mint]));
     expect(["a1", "a2"]).toContain(bySlot.get(N - 3));
     expect(bySlot.get(N - 2)).toBe("b1");
-    expect(bySlot.get(N - 10)).toBe("old");
+    expect(bySlot.get(N - 5)).toBe("old");
     expect(bySlot.has(N)).toBe(false);
   });
 

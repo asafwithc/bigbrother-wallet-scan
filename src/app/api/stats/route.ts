@@ -7,7 +7,7 @@ import { cached } from "@/lib/cache";
 
 export const dynamic = "force-dynamic";
 
-const DB_PATH = path.join(process.cwd(), "bigbrother.db");
+const DB_PATH = process.env.DB_PATH?.trim() || path.join(process.cwd(), "bigbrother.db");
 
 interface DailyLaunch {
   date: string;

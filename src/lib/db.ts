@@ -8,7 +8,9 @@ import { tierSql } from "./tiers";
  * Stored in project root as bigbrother.db.
  */
 
-const DB_PATH = path.join(process.cwd(), "bigbrother.db");
+// DB_PATH points the app at a database on a persistent disk (e.g. /data/bigbrother.db
+// on a hosted volume). Without it, the file sits in the project root.
+const DB_PATH = process.env.DB_PATH?.trim() || path.join(process.cwd(), "bigbrother.db");
 
 let db: Database.Database | null = null;
 

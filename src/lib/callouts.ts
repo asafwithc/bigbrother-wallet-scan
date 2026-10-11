@@ -2,7 +2,7 @@ import { getDb } from "./db";
 import { ensureCoinsTable } from "./market";
 
 /**
- * Callout picks for the Terminal: one randomly chosen launch per 45-second
+ * Callout picks for the Terminal: one randomly chosen launch per 5-minute
  * slot, saved so the list doesn't reshuffle on every refresh. This only
  * builds the list; nothing is bought or posted from here.
  *
@@ -11,8 +11,8 @@ import { ensureCoinsTable } from "./market";
  * are already migrated at pick time are skipped (a "launch" that is already
  * on a DEX pool within minutes is almost always a mis-recorded old coin).
  */
-export const SLOT_S = 45;
-const LOOKBACK_SLOTS = 40;
+export const SLOT_S = 5 * 60;
+const LOOKBACK_SLOTS = 6; // 30 minutes
 
 let tableReady = false;
 function ensureCalloutsTable(): void {
