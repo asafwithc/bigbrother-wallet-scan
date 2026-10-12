@@ -5,7 +5,7 @@ import { Main } from "@/components/main";
 import { MatrixRain } from "@/components/matrix-rain";
 
 export const metadata: Metadata = {
-  title: "FadeTheDev — Check the dev before you ape",
+  title: "KnowYourDev — Check the dev before you ape",
   description:
     "See who is behind a pump.fun coin before you buy. Every dev we track gets a rank from their record: the ones who ship, and the ones who farm you.",
 };

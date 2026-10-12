@@ -1,8 +1,8 @@
 {
-  "name": "fadethedev",
+  "name": "knowyourdev",
   "version": "0.1.0",
   "private": true,
-  "description": "FadeTheDev — Solana developer wallet rug-risk tracker",
+  "description": "KnowYourDev — Solana developer wallet rug-risk tracker",
   "scripts": {
     "dev": "node scripts/start.mjs dev",
     "build": "node scripts/start.mjs build",

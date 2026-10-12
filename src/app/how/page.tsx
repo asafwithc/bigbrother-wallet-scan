@@ -260,7 +260,7 @@ export default async function HowItWorks() {
             behind it is already on to the next one.
           </p>
           <p>
-            FadeTheDev watches pump.fun launches as they land, looks up the wallet behind each one,
+            KnowYourDev watches pump.fun launches as they land, looks up the wallet behind each one,
             and ranks the dev on what they did before: Crazy Dev, Proven, Good, Unknown or Farmer.
           </p>
           <p>One word, next to the coin, before you buy.</p>
@@ -477,7 +477,7 @@ export default async function HowItWorks() {
         </div>
 
         <p className="mt-[3em] text-[0.85em] text-zinc-500">
-          FadeTheDev ranks pump.fun devs from on-chain history. Not financial advice.
+          KnowYourDev ranks pump.fun devs from on-chain history. Not financial advice.
         </p>
       </div>
     </div>

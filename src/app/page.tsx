@@ -290,7 +290,7 @@ export default function Live() {
             <Decode text="Check the dev before you ape." />
           </h1>
           <p className="max-w-[680px] text-[17px] leading-normal text-zinc-400">
-            Same wallets, new ticker, same ending. FadeTheDev watches pump.fun launches as they
+            Same wallets, new ticker, same ending. KnowYourDev watches pump.fun launches as they
             land and puts the dev&apos;s record next to the coin: how many they launched, how many
             went anywhere, and how many they left for dead.
           </p>

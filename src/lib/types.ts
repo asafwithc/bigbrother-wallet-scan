@@ -1,4 +1,4 @@
-// Shared types for FadeTheDev
+// Shared types for KnowYourDev
 
 export type Verdict = "Legit" | "Suspicious" | "Likely Rugged";
 

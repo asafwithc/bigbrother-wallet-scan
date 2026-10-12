@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 /**
  * The project's own coin for the navbar ticker. Set in .env:
  *   TOKEN_MINT=<the coin's contract address>
- *   TOKEN_SYMBOL=FADE        (optional: taken from the coin's own data if left out)
+ *   TOKEN_SYMBOL=KYD         (optional: taken from the coin's own data if left out)
  * With no TOKEN_MINT the ticker is simply not shown.
  */
 async function load() {

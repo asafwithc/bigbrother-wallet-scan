@@ -48,8 +48,8 @@ export function Header() {
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3 px-5 py-3">
         <Link href="/" className="flex items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-sm.jpg" alt="" width={32} height={32} className="h-8 w-8 rounded-md shadow-glow-sm" />
-          <span className="mono cursor text-[15px] font-semibold uppercase tracking-[0.22em]">FadeTheDev</span>
+          <img src="/logo-sm.jpg" alt="" width={36} height={36} className="h-9 w-9 rounded-lg shadow-glow-sm" />
+          <span className="mono cursor text-[15px] font-semibold uppercase tracking-[0.22em]">KnowYourDev</span>
         </Link>
         <nav className="mono flex flex-wrap gap-1 text-[12.5px] uppercase tracking-[0.14em] text-zinc-400">
           {NAV.map((n) => {
